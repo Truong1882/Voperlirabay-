@@ -1,556 +1,456 @@
--- LocalScript: Fluent Spcit UI nâng cấp (Intro + Tabs + Save/Execute)
--- Dán vào LocalScript hoặc chạy bằng executor. Sử dụng link Fluent do bạn cung cấp.
--- Link: https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua
+-- Test7 Pro Executor (Full feature)
+-- Copy -> Paste vào executor (Delta...) -> Execute
 
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
-local player = Players.LocalPlayer
-local pg = player:WaitForChild("PlayerGui")
+-- ====== Helpers for compatibility with different executors ======
+local has_writefile = type(writefile) == "function"
+local has_readfile = type(readfile) == "function"
+local has_isfile = type(isfile) == "function"
+local has_makefolder = type(makefolder) == "function"
+local http_get = (function()
+    if type(game.HttpGet) == "function" then return function(url) return game:HttpGet(url) end end
+    if type(game.HttpGetAsync) == "function" then return function(url) return game:HttpGetAsync(url) end end
+    if type(HttpGet) == "function" then return function(url) return HttpGet(url) end end
+    if type(syn) == "table" and syn.request then return function(url)
+        local r = syn.request({Url = url, Method = "GET"})
+        return r.Body
+    end end
+    return nil
+end)()
 
--- try load Fluent library (user-provided)
-local ok, Fluent = pcall(function()
-    return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-end)
-
--- Theme colors (Fluent-like light theme + dark fallback)
-local Theme = {
-    Light = {
-        Background = Color3.fromRGB(243,243,243),
-        Card = Color3.fromRGB(255,255,255),
-        TopBar = Color3.fromRGB(230,230,230),
-        Text = Color3.fromRGB(32,32,32),
-        Accent = Color3.fromRGB(0,120,212) -- Fluent blue
-    },
-    Dark = {
-        Background = Color3.fromRGB(30,30,30),
-        Card = Color3.fromRGB(40,40,40),
-        TopBar = Color3.fromRGB(45,45,45),
-        Text = Color3.fromRGB(240,240,240),
-        Accent = Color3.fromRGB(0,120,212)
-    }
-}
-local currentThemeName = "Light"
-local currentTheme = Theme[currentThemeName]
-
--- Helper: safe create
-local function new(class, props)
-    local obj = Instance.new(class)
-    if props then
-        for k,v in pairs(props) do
-            if k ~= "Parent" then
-                obj[k] = v
-            end
-        end
-        obj.Parent = props.Parent
+local function try_write(path, content)
+    if has_writefile then
+        pcall(function() writefile(path, content) end)
+        return true
     end
-    return obj
+    return false
 end
 
--- Destroy any previous UI
-local existing = pg:FindFirstChild("FluentSpcitUI")
-if existing then existing:Destroy() end
-
--- Root ScreenGui
-local screenGui = new("ScreenGui", {Name = "FluentSpcitUI", Parent = pg, ResetOnSpawn = false})
--- Use ZIndexBehavior to ensure on top
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
--- Intro Frame (full screen)
-local intro = new("Frame", {
-    Name = "Intro",
-    Parent = screenGui,
-    Size = UDim2.new(1,0,1,0),
-    Position = UDim2.new(0,0,0,0),
-    BackgroundColor3 = currentTheme.Background
-})
-new("UICorner", {Parent = intro, CornerRadius = UDim.new(0,0)})
-
-local logoText = new("TextLabel", {
-    Parent = intro,
-    Size = UDim2.new(1,0,0,80),
-    Position = UDim2.new(0,0,0.4,-40),
-    BackgroundTransparency = 1,
-    Text = "Spcit",
-    TextColor3 = currentTheme.Text,
-    Font = Enum.Font.GothamBold,
-    TextSize = 48,
-    TextYAlignment = Enum.TextYAlignment.Center
-})
-
-local loading = new("TextLabel", {
-    Parent = intro,
-    Size = UDim2.new(1,0,0,30),
-    Position = UDim2.new(0,0,0.63,0),
-    BackgroundTransparency = 1,
-    Text = "Loading...",
-    TextColor3 = currentTheme.Text,
-    Font = Enum.Font.Gotham,
-    TextSize = 20
-})
-
--- Intro animation: fade in text, wait, slide up destroy
-logoText.TextTransparency = 1
-loading.TextTransparency = 1
-TweenService:Create(logoText, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0}):Play()
-TweenService:Create(loading, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0}):Play()
-task.delay(1.2, function()
-    TweenService:Create(intro, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0,0,-1,0)}):Play()
-    task.delay(0.85, function() if intro and intro.Parent then intro:Destroy() end end)
-end)
-
--- Main Window (card)
-local main = new("Frame", {
-    Name = "MainWindow",
-    Parent = screenGui,
-    Size = UDim2.new(0,700,0,420),
-    Position = UDim2.new(0.5,-350,0.5,-210),
-    BackgroundColor3 = currentTheme.Background,
-    BorderSizePixel = 0,
-})
-local mainCorner = new("UICorner", {Parent = main, CornerRadius = UDim.new(0,12)})
-local mainStroke = new("UIStroke", {Parent = main, Color = Color3.fromRGB(200,200,200), Thickness = 1, Transparency = 0.8})
-
--- Shadow (simple simulated by image or stroke) - kept minimal
--- Top Bar
-local topBar = new("Frame", {
-    Parent = main,
-    Size = UDim2.new(1,0,0,56),
-    Position = UDim2.new(0,0,0,0),
-    BackgroundColor3 = currentTheme.TopBar,
-    BorderSizePixel = 0
-})
-new("UICorner", {Parent = topBar, CornerRadius = UDim.new(0,12)})
-
-local title = new("TextLabel", {
-    Parent = topBar,
-    Size = UDim2.new(0.6,0,1,0),
-    Position = UDim2.new(0.03,0,0,0),
-    BackgroundTransparency = 1,
-    Text = "Spcit Executor",
-    TextColor3 = currentTheme.Text,
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextXAlignment = Enum.TextXAlignment.Left
-})
-
-local btnMinimize = new("TextButton", {
-    Parent = topBar,
-    Size = UDim2.new(0,36,0,36),
-    Position = UDim2.new(1,-84,0,10),
-    BackgroundColor3 = Color3.fromRGB(230,230,230),
-    Text = "_",
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextColor3 = currentTheme.Text,
-    BorderSizePixel = 0
-})
-new("UICorner", {Parent = btnMinimize, CornerRadius = UDim.new(0,6)})
-
-local btnClose = new("TextButton", {
-    Parent = topBar,
-    Size = UDim2.new(0,36,0,36),
-    Position = UDim2.new(1,-42,0,10),
-    BackgroundColor3 = Color3.fromRGB(220,80,80),
-    Text = "X",
-    Font = Enum.Font.GothamBold,
-    TextSize = 18,
-    TextColor3 = Color3.fromRGB(255,255,255),
-    BorderSizePixel = 0
-})
-new("UICorner", {Parent = btnClose, CornerRadius = UDim.new(0,6)})
-
--- Tab bar (horizontal)
-local tabBar = new("Frame", {
-    Parent = main,
-    Size = UDim2.new(1,0,0,48),
-    Position = UDim2.new(0,0,0,56),
-    BackgroundTransparency = 1
-})
-local tabNames = {"Script","Settings","Info"}
-local tabButtons = {}
-local tabButtonWidth = 160
-local underline = new("Frame", {
-    Parent = tabBar,
-    Size = UDim2.new(0, tabButtonWidth - 28, 0, 3),
-    Position = UDim2.new(0, 14, 1, -6),
-    BackgroundColor3 = currentTheme.Accent,
-    BorderSizePixel = 0
-})
-new("UICorner", {Parent = underline, CornerRadius = UDim.new(0,4)})
-
-for i,name in ipairs(tabNames) do
-    local btn = new("TextButton", {
-        Parent = tabBar,
-        Size = UDim2.new(0, tabButtonWidth, 1, 0),
-        Position = UDim2.new(0,(i-1)*tabButtonWidth,0,0),
-        BackgroundTransparency = 1,
-        Text = name,
-        Font = Enum.Font.GothamMedium,
-        TextSize = 16,
-        TextColor3 = currentTheme.Text
-    })
-    tabButtons[name] = btn
+local function try_read(path)
+    if has_readfile and has_isfile and isfile(path) then
+        local ok, res = pcall(function() return readfile(path) end)
+        if ok then return res end
+    end
+    return nil
 end
 
--- Pages container
-local pagesFolder = new("Folder", {Parent = main, Name = "Pages"})
-local pages = {}
-for i,name in ipairs(tabNames) do
-    local page = new("Frame", {
-        Parent = pagesFolder,
-        Name = name.."Page",
-        Size = UDim2.new(1,-20,1,-120),
-        Position = UDim2.new(0,10,0,120),
-        BackgroundColor3 = currentTheme.Card,
-        BorderSizePixel = 0,
-        Visible = (name == "Script")
-    })
-    new("UICorner", {Parent = page, CornerRadius = UDim.new(0,8)})
-    pages[name] = page
+-- folder for saved scripts
+local folder = "Test7Scripts"
+if has_makefolder then
+    pcall(function() makefolder(folder) end)
 end
 
--- Make main draggable
-do
-    local dragging = false
-    local dragInput, dragStart, startPos
-    topBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = main.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-    topBar.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then
-            dragInput = input
-        end
-    end)
-    game:GetService("UserInputService").InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
+-- ====== Build UI ======
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+
+-- prevent duplicate
+if CoreGui:FindFirstChild("Test7ExecutorPro") then
+    CoreGui.Test7ExecutorPro:Destroy()
 end
 
--- Script Tab contents
-local scriptPage = pages["Script"]
-local scriptBox = new("TextBox", {
-    Parent = scriptPage,
-    Size = UDim2.new(1,-24,1,-84),
-    Position = UDim2.new(0,12,0,12),
-    BackgroundColor3 = Color3.fromRGB(245,245,245),
-    TextColor3 = currentTheme.Text,
-    Text = "-- Paste your Lua script here",
-    ClearTextOnFocus = false,
-    MultiLine = true,
-    Font = Enum.Font.Code,
-    TextSize = 16
-})
-new("UICorner", {Parent = scriptBox, CornerRadius = UDim.new(0,6)})
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Test7ExecutorPro"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
 
-local btnExecute = new("TextButton", {
-    Parent = scriptPage,
-    Size = UDim2.new(0,120,0,36),
-    Position = UDim2.new(0,12,1,-48),
-    BackgroundColor3 = currentTheme.Accent,
-    Text = "Execute",
-    Font = Enum.Font.GothamBold,
-    TextSize = 16,
-    TextColor3 = Color3.fromRGB(255,255,255),
-    BorderSizePixel = 0
-})
-new("UICorner", {Parent = btnExecute, CornerRadius = UDim.new(0,8)})
+local Frame = Instance.new("Frame")
+Frame.Parent = ScreenGui
+Frame.Size = UDim2.new(0, 560, 0, 380)
+Frame.Position = UDim2.new(0.25, 0, 0.2, 0)
+Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+Frame.BorderSizePixel = 0
+Frame.Active = true
+Frame.Draggable = true
+Frame.ZIndex = 5
+Frame.ClipsDescendants = true
 
-local btnClear = new("TextButton", {
-    Parent = scriptPage,
-    Size = UDim2.new(0,90,0,36),
-    Position = UDim2.new(0,144,1,-48),
-    BackgroundColor3 = Color3.fromRGB(200,200,200),
-    Text = "Clear",
-    Font = Enum.Font.Gotham,
-    TextSize = 14,
-    TextColor3 = currentTheme.Text,
-    BorderSizePixel = 0
-})
-new("UICorner", {Parent = btnClear, CornerRadius = UDim.new(0,8)})
+-- Titlebar
+local TitleBar = Instance.new("Frame")
+TitleBar.Parent = Frame
+TitleBar.Size = UDim2.new(1,0,0,36)
+TitleBar.BackgroundColor3 = Color3.fromRGB(45,45,45)
+TitleBar.BorderSizePixel = 0
+TitleBar.ZIndex = 6
 
-local btnSave = new("TextButton", {
-    Parent = scriptPage,
-    Size = UDim2.new(0,110,0,36),
-    Position = UDim2.new(0,248,1,-48),
-    BackgroundColor3 = Color3.fromRGB(230,230,230),
-    Text = "Save Script",
-    Font = Enum.Font.Gotham,
-    TextSize = 14,
-    TextColor3 = currentTheme.Text,
-    BorderSizePixel = 0
-})
-new("UICorner", {Parent = btnSave, CornerRadius = UDim.new(0,8)})
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Parent = TitleBar
+TitleLabel.Size = UDim2.new(1, -80, 1, 0)
+TitleLabel.Position = UDim2.new(0, 8, 0, 0)
+TitleLabel.Text = "Test7 Pro Script Executor"
+TitleLabel.TextColor3 = Color3.fromRGB(240,240,240)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Font = Enum.Font.SourceSansBold
+TitleLabel.TextSize = 18
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.ZIndex = 7
 
--- Recent scripts panel (right side)
-local recentPanel = new("Frame", {
-    Parent = scriptPage,
-    Size = UDim2.new(0,220,1,-24),
-    Position = UDim2.new(1,-232,0,12),
-    BackgroundColor3 = Color3.fromRGB(250,250,250),
-    BorderSizePixel = 0
-})
-new("UICorner", {Parent = recentPanel, CornerRadius = UDim.new(0,6)})
-local recentTitle = new("TextLabel", {
-    Parent = recentPanel,
-    Size = UDim2.new(1,0,0,34),
-    Position = UDim2.new(0,0,0,0),
-    BackgroundTransparency = 1,
-    Text = "Recent",
-    Font = Enum.Font.GothamBold,
-    TextSize = 16,
-    TextColor3 = currentTheme.Text
-})
+local MinimizeBtn = Instance.new("TextButton")
+MinimizeBtn.Parent = TitleBar
+MinimizeBtn.Size = UDim2.new(0,36,0,36)
+MinimizeBtn.Position = UDim2.new(1, -72, 0, 0)
+MinimizeBtn.Text = "_"
+MinimizeBtn.Font = Enum.Font.SourceSansBold
+MinimizeBtn.TextSize = 18
+MinimizeBtn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+MinimizeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+MinimizeBtn.ZIndex = 7
 
-local recentList = new("ScrollingFrame", {
-    Parent = recentPanel,
-    Size = UDim2.new(1,-12,1,-44),
-    Position = UDim2.new(0,6,0,38),
-    CanvasSize = UDim2.new(0,0,0,0),
-    ScrollBarThickness = 6,
-    BackgroundTransparency = 1
-})
-local uiList = new("UIListLayout", {Parent = recentList, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,6)})
-uiList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    recentList.CanvasSize = UDim2.new(0,0,0, uiList.AbsoluteContentSize.Y + 8)
-end)
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Parent = TitleBar
+CloseBtn.Size = UDim2.new(0,36,0,36)
+CloseBtn.Position = UDim2.new(1, -36, 0, 0)
+CloseBtn.Text = "X"
+CloseBtn.Font = Enum.Font.SourceSansBold
+CloseBtn.TextSize = 18
+CloseBtn.BackgroundColor3 = Color3.fromRGB(100,40,40)
+CloseBtn.TextColor3 = Color3.fromRGB(255,255,255)
+CloseBtn.ZIndex = 7
 
--- Storage for recent scripts
-local recentScripts = {} -- each item {name=..., code=...}
-local recentFileName = "spcit_recent_scripts.json"
+-- Left sidebar (scripts list)
+local Side = Instance.new("Frame")
+Side.Parent = Frame
+Side.Size = UDim2.new(0,160,1,-36)
+Side.Position = UDim2.new(0,0,0,36)
+Side.BackgroundColor3 = Color3.fromRGB(35,35,35)
+Side.BorderSizePixel = 0
+Side.ZIndex = 5
 
--- Try to load saved scripts (writefile/readfile exist in many executors)
-local function loadSaved()
-    recentScripts = {}
-    if pcall(function() return readfile end) then
-        local success, content = pcall(function() return readfile(recentFileName) end)
-        if success and content and content ~= "" then
-            local ok2, data = pcall(function() return HttpService:JSONDecode(content) end)
-            if ok2 and type(data) == "table" then
-                recentScripts = data
-            end
-        end
-    else
-        -- fallback: check for StringValue children in Gui
-        local store = screenGui:FindFirstChild("RecentStore")
-        if store then
-            for _,v in ipairs(store:GetChildren()) do
-                if v:IsA("StringValue") then
-                    local ok3, obj = pcall(function() return HttpService:JSONDecode(v.Value) end)
-                    if ok3 and type(obj) == "table" then
-                        table.insert(recentScripts, obj)
-                    end
-                end
-            end
-        end
-    end
-end
+local SideTitle = Instance.new("TextLabel")
+SideTitle.Parent = Side
+SideTitle.Size = UDim2.new(1,0,0,28)
+SideTitle.Position = UDim2.new(0,0,0,6)
+SideTitle.BackgroundTransparency = 1
+SideTitle.Text = "Scripts"
+SideTitle.TextColor3 = Color3.fromRGB(220,220,220)
+SideTitle.Font = Enum.Font.SourceSansSemibold
+SideTitle.TextSize = 16
+SideTitle.ZIndex = 6
 
-local function saveToStorage()
-    local encoded = HttpService:JSONEncode(recentScripts)
-    if pcall(function() return writefile end) then
-        pcall(function() writefile(recentFileName, encoded) end)
-    else
-        -- fallback store in gui values
-        local store = screenGui:FindFirstChild("RecentStore") or new("Folder", {Parent = screenGui, Name = "RecentStore"})
-        -- clear
-        for _,c in ipairs(store:GetChildren()) do pcall(function() c:Destroy() end) end
-        for i,item in ipairs(recentScripts) do
-            local sv = new("StringValue", {Parent = store, Name = "Script"..i, Value = HttpService:JSONEncode(item)})
-        end
-    end
-end
+local ScriptsList = Instance.new("ScrollingFrame")
+ScriptsList.Parent = Side
+ScriptsList.Size = UDim2.new(1,-12,1,-44)
+ScriptsList.Position = UDim2.new(0,6,0,34)
+ScriptsList.BackgroundTransparency = 1
+ScriptsList.CanvasSize = UDim2.new(0,0,0,0)
+ScriptsList.ScrollBarThickness = 6
+ScriptsList.ZIndex = 6
 
-local function refreshRecentUI()
-    for _,c in ipairs(recentList:GetChildren()) do
-        if not c:IsA("UIListLayout") then pcall(function() c:Destroy() end) end
-    end
-    for i,item in ipairs(recentScripts) do
-        local btn = new("TextButton", {
-            Parent = recentList,
-            Size = UDim2.new(1, -12, 0, 36),
-            BackgroundColor3 = Color3.fromRGB(240,240,240),
-            Text = item.name or ("Script "..i),
-            Font = Enum.Font.Gotham,
-            TextSize = 14,
-            TextColor3 = currentTheme.Text,
-            BorderSizePixel = 0
-        })
-        new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,6)})
-        btn.MouseButton1Click:Connect(function()
-            scriptBox.Text = item.code or ""
-        end)
-    end
-end
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = ScriptsList
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0,6)
 
--- load existing saved scripts (if any)
-loadSaved()
-refreshRecentUI()
+-- Main editor area
+local EditorFrame = Instance.new("Frame")
+EditorFrame.Parent = Frame
+EditorFrame.Size = UDim2.new(1, -170, 1, -36)
+EditorFrame.Position = UDim2.new(0,170,0,36)
+EditorFrame.BackgroundColor3 = Color3.fromRGB(28,28,28)
+EditorFrame.BorderSizePixel = 0
+EditorFrame.ZIndex = 5
 
--- Button behaviors
-btnExecute.MouseButton1Click:Connect(function()
-    local code = scriptBox.Text or ""
-    if code == "" then return end
-    -- run safely with pcall; in exploit context loadstring exists
-    local success, err = pcall(function()
-        local f = loadstring(code)
-        if type(f) == "function" then
-            f()
-        end
-    end)
-    if not success then
-        warn("Script Error: "..tostring(err))
-        -- show small feedback
-        btnExecute.Text = "Error"
-        task.delay(1.2, function() if btnExecute then btnExecute.Text = "Execute" end end)
-    else
-        btnExecute.Text = "Done"
-        task.delay(0.9, function() if btnExecute then btnExecute.Text = "Execute" end end)
-        -- add to recent (top)
-        table.insert(recentScripts, 1, {name = ("Saved %s"):format(os.date("%H:%M:%S")), code = code})
-        -- cap to 12 items
-        while #recentScripts > 12 do table.remove(recentScripts) end
-        saveToStorage()
-        refreshRecentUI()
-    end
-end)
+local TextBox = Instance.new("TextBox")
+TextBox.Parent = EditorFrame
+TextBox.Size = UDim2.new(1,-20,0.72,-20)
+TextBox.Position = UDim2.new(0,10,0,10)
+TextBox.BackgroundColor3 = Color3.fromRGB(12,12,12)
+TextBox.TextColor3 = Color3.fromRGB(230,230,230)
+TextBox.Font = Enum.Font.Code
+TextBox.TextSize = 15
+TextBox.MultiLine = true
+TextBox.TextWrapped = true
+TextBox.ClearTextOnFocus = false
+TextBox.Text = "-- Paste script here or a raw URL to import then press Run Raw\n"
 
-btnClear.MouseButton1Click:Connect(function()
-    scriptBox.Text = ""
-end)
+-- Buttons row
+local BtnY = 0.76
+local BtnW = 110
+local BtnH = 36
+local Gap = 10
+local startX = 10
 
-btnSave.MouseButton1Click:Connect(function()
-    local name = "Saved "..os.date("%Y-%m-%d %H:%M:%S")
-    table.insert(recentScripts, 1, {name = name, code = scriptBox.Text or ""})
-    while #recentScripts > 12 do table.remove(recentScripts) end
-    saveToStorage()
-    refreshRecentUI()
-    -- feedback
-    btnSave.Text = "Saved"
-    task.delay(0.9, function() if btnSave then btnSave.Text = "Save Script" end end)
-end)
+local ExecuteBtn = Instance.new("TextButton")
+ExecuteBtn.Parent = EditorFrame
+ExecuteBtn.Size = UDim2.new(0,BtnW,0,BtnH)
+ExecuteBtn.Position = UDim2.new(0, startX, BtnY, 0)
+ExecuteBtn.Text = "Execute"
+ExecuteBtn.Font = Enum.Font.SourceSansBold
+ExecuteBtn.TextSize = 16
+ExecuteBtn.BackgroundColor3 = Color3.fromRGB(60,140,60)
+ExecuteBtn.TextColor3 = Color3.fromRGB(255,255,255)
+ExecuteBtn.ZIndex = 7
 
--- Settings Page contents
-local settingsPage = pages["Settings"]
-local themeToggleLabel = new("TextLabel", {
-    Parent = settingsPage,
-    Size = UDim2.new(0,200,0,28),
-    Position = UDim2.new(0,20,0,20),
-    BackgroundTransparency = 1,
-    Text = "Theme:",
-    Font = Enum.Font.Gotham,
-    TextSize = 16,
-    TextColor3 = currentTheme.Text,
-    TextXAlignment = Enum.TextXAlignment.Left
-})
-local themeToggle = new("TextButton", {
-    Parent = settingsPage,
-    Size = UDim2.new(0,120,0,36),
-    Position = UDim2.new(0,120,0,12),
-    BackgroundColor3 = Color3.fromRGB(230,230,230),
-    Text = "Light",
-    Font = Enum.Font.Gotham,
-    TextSize = 14,
-    TextColor3 = currentTheme.Text
-})
-new("UICorner", {Parent = themeToggle, CornerRadius = UDim.new(0,8)})
+local ClearBtn = Instance.new("TextButton")
+ClearBtn.Parent = EditorFrame
+ClearBtn.Size = UDim2.new(0,BtnW,0,BtnH)
+ClearBtn.Position = UDim2.new(0, startX + (BtnW+Gap)*1, BtnY, 0)
+ClearBtn.Text = "Clear"
+ClearBtn.Font = Enum.Font.SourceSansBold
+ClearBtn.TextSize = 16
+ClearBtn.BackgroundColor3 = Color3.fromRGB(150,60,60)
+ClearBtn.TextColor3 = Color3.fromRGB(255,255,255)
+ClearBtn.ZIndex = 7
 
-themeToggle.MouseButton1Click:Connect(function()
-    if currentThemeName == "Light" then
-        currentThemeName = "Dark"
-    else
-        currentThemeName = "Light"
-    end
-    currentTheme = Theme[currentThemeName]
-    -- apply theme colors (simple)
-    main.BackgroundColor3 = currentTheme.Background
-    topBar.BackgroundColor3 = currentTheme.TopBar
-    title.TextColor3 = currentTheme.Text
-    btnExecute.BackgroundColor3 = currentTheme.Accent
-    btnExecute.TextColor3 = Color3.fromRGB(255,255,255)
-    btnClear.BackgroundColor3 = (currentThemeName=="Light" and Color3.fromRGB(200,200,200) or Color3.fromRGB(70,70,70))
-    btnClear.TextColor3 = currentTheme.Text
-    btnSave.BackgroundColor3 = (currentThemeName=="Light" and Color3.fromRGB(230,230,230) or Color3.fromRGB(60,60,60))
-    btnSave.TextColor3 = currentTheme.Text
-    scriptBox.BackgroundColor3 = (currentThemeName=="Light" and Color3.fromRGB(245,245,245) or Color3.fromRGB(54,54,54))
-    scriptBox.TextColor3 = currentTheme.Text
-    recentPanel.BackgroundColor3 = (currentThemeName=="Light" and Color3.fromRGB(250,250,250) or Color3.fromRGB(44,44,44))
-    themeToggle.Text = (currentThemeName=="Light" and "Light" or "Dark")
-    -- update recent items colors
-    refreshRecentUI()
-end)
+local RunRawBtn = Instance.new("TextButton")
+RunRawBtn.Parent = EditorFrame
+RunRawBtn.Size = UDim2.new(0,BtnW,0,BtnH)
+RunRawBtn.Position = UDim2.new(0, startX + (BtnW+Gap)*2, BtnY, 0)
+RunRawBtn.Text = "Run Raw"
+RunRawBtn.Font = Enum.Font.SourceSansBold
+RunRawBtn.TextSize = 16
+RunRawBtn.BackgroundColor3 = Color3.fromRGB(70,70,140)
+RunRawBtn.TextColor3 = Color3.fromRGB(255,255,255)
+RunRawBtn.ZIndex = 7
 
--- Info Page contents
-local infoPage = pages["Info"]
-local infoLabel = new("TextLabel", {
-    Parent = infoPage,
-    Size = UDim2.new(1,-40,0,120),
-    Position = UDim2.new(0,20,0,20),
-    BackgroundTransparency = 1,
-    Text = "Spcit Executor\nVersion: 1.0\nAuthor: You\nLibrary: Fluent (optional)",
-    Font = Enum.Font.Gotham,
-    TextSize = 16,
-    TextColor3 = currentTheme.Text,
-    TextWrapped = true,
-    TextYAlignment = Enum.TextYAlignment.Top
-})
+local SaveBtn = Instance.new("TextButton")
+SaveBtn.Parent = EditorFrame
+SaveBtn.Size = UDim2.new(0,BtnW,0,BtnH)
+SaveBtn.Position = UDim2.new(0, startX + (BtnW+Gap)*3, BtnY, 0)
+SaveBtn.Text = "Save"
+SaveBtn.Font = Enum.Font.SourceSansBold
+SaveBtn.TextSize = 16
+SaveBtn.BackgroundColor3 = Color3.fromRGB(110,110,60)
+SaveBtn.TextColor3 = Color3.fromRGB(255,255,255)
+SaveBtn.ZIndex = 7
 
--- Tab switching with underline tween
-local function switchToTab(name)
-    for n, p in pairs(pages) do
-        p.Visible = (n == name)
-    end
-    local index = table.find(tabNames, name) or 1
-    local targetX = (index-1) * tabButtonWidth + 14
-    TweenService:Create(underline, TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, targetX, 1, -6)}):Play()
-end
+local LoadBtn = Instance.new("TextButton")
+LoadBtn.Parent = EditorFrame
+LoadBtn.Size = UDim2.new(0,BtnW,0,BtnH)
+LoadBtn.Position = UDim2.new(0, startX + (BtnW+Gap)*4, BtnY, 0)
+LoadBtn.Text = "Load"
+LoadBtn.Font = Enum.Font.SourceSansBold
+LoadBtn.TextSize = 16
+LoadBtn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+LoadBtn.TextColor3 = Color3.fromRGB(255,255,255)
+LoadBtn.ZIndex = 7
 
-for name, btn in pairs(tabButtons) do
+-- Status bar
+local status = Instance.new("TextLabel")
+status.Parent = EditorFrame
+status.Size = UDim2.new(1,-20,0,20)
+status.Position = UDim2.new(0,10,1,-26)
+status.BackgroundTransparency = 1
+status.Text = "Ready"
+status.TextColor3 = Color3.fromRGB(180,180,180)
+status.Font = Enum.Font.SourceSans
+status.TextSize = 14
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.ZIndex = 7
+
+-- Utility: add script button to list
+local function addScriptItem(name, content)
+    local btn = Instance.new("TextButton")
+    btn.Parent = ScriptsList
+    btn.Size = UDim2.new(1,0,0,36)
+    btn.Text = name
+    btn.Font = Enum.Font.SourceSans
+    btn.TextSize = 14
+    btn.TextColor3 = Color3.fromRGB(240,240,240)
+    btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    btn.ZIndex = 6
+    btn.AutoButtonColor = true
+
     btn.MouseButton1Click:Connect(function()
-        switchToTab(name)
+        TextBox.Text = content
+        status.Text = "Loaded script: "..name
     end)
 end
 
--- Minimize / Close behaviors
-local minimized = false
-btnMinimize.MouseButton1Click:Connect(function()
-    if minimized then
-        main.Size = UDim2.new(0,700,0,420)
-        minimized = false
+-- Add sample scripts
+addScriptItem("Fly (sample)", [[
+-- Simple Fly (sample) - may require exploit support
+local plr = game.Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+local flying = true
+local speed = 50
+local bodyvel = Instance.new("BodyVelocity", hrp)
+bodyvel.MaxForce = Vector3.new(1e5,1e5,1e5)
+game:GetService("RunService").Heartbeat:Connect(function()
+    if flying then
+        local cam = workspace.CurrentCamera
+        local dir = (cam.CFrame.LookVector + Vector3.new(0,0,0)).Unit
+        bodyvel.Velocity = dir * speed
     else
-        main.Size = UDim2.new(0,340,0,56)
-        minimized = true
+        bodyvel.Velocity = Vector3.new(0,0,0)
     end
 end)
-btnClose.MouseButton1Click:Connect(function()
-    screenGui:Destroy()
+]])
+
+addScriptItem("ESP (sample)", [[
+-- Basic ESP (client-side)
+for i,v in pairs(game.Players:GetPlayers()) do
+    if v ~= game.Players.LocalPlayer then
+        local bill = Instance.new("BillboardGui", v.Character and v.Character:FindFirstChild("Head") or nil)
+        if bill then
+            bill.Size = UDim2.new(0,100,0,30)
+            bill.AlwaysOnTop = true
+            local lbl = Instance.new("TextLabel", bill)
+            lbl.Size = UDim2.new(1,1,1,1)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = v.Name
+            lbl.TextColor3 = Color3.new(1,0,0)
+        end
+    end
+end
+]])
+
+addScriptItem("AutoFarm (placeholder)", [[
+-- AutoFarm placeholder
+print("AutoFarm: bạn cần chỉnh theo game cụ thể.")
+]])
+
+-- adjust ScrollCanvas after adding
+ScriptsList.CanvasSize = UDim2.new(0,0,0, UIListLayout.AbsoluteContentSize + 10)
+UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ScriptsList.CanvasSize = UDim2.new(0,0, UIListLayout.AbsoluteContentSize + 12, 0)
 end)
 
--- If Fluent library is present and exposes helpful helpers, attempt to use them
-if ok and type(Fluent) == "table" then
-    -- Try to call a common initializer if exists (best-effort)
-    pcall(function()
-        if Fluent.Init then Fluent.Init(screenGui) end
-        -- If library provides themed components, user can later integrate; we keep manual UI working
-    end)
+-- ====== Button functions ======
+local function setStatus(txt)
+    status.Text = txt
 end
 
--- Final small entrance animation for main window
-main.AnchorPoint = Vector2.new(0.5,0.5)
-main.Position = UDim2.new(0.5, -350, 0.5, -260) -- slightly higher start
-main.Size = UDim2.new(0,700,0,0)
-TweenService:Create(main, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0,700,0,420), Position = UDim2.new(0.5,-350,0.5,-210)}):Play()
+ExecuteBtn.MouseButton1Click:Connect(function()
+    local code = TextBox.Text or ""
+    setStatus("Executing...")
+    local ok, err = pcall(function()
+        local fn = loadstring and loadstring(code) or load and load(code)
+        if fn then
+            fn()
+        else
+            error("loadstring not available")
+        end
+    end)
+    if not ok then
+        setStatus("Error: " .. tostring(err))
+        warn("Execute error:", err)
+    else
+        setStatus("Execution finished.")
+    end
+end)
 
--- End of script
+ClearBtn.MouseButton1Click:Connect(function()
+    TextBox.Text = ""
+    setStatus("Cleared editor.")
+end)
+
+RunRawBtn.MouseButton1Click:Connect(function()
+    local url = TextBox.Text and TextBox.Text:match("%S+")
+    if not url or (not url:match("^https?://")) then
+        setStatus("Please paste a valid raw URL in the editor.")
+        return
+    end
+    if not http_get then
+        setStatus("HttpGet not available on this executor.")
+        return
+    end
+    setStatus("Fetching raw script...")
+    local ok, res = pcall(function() return http_get(url) end)
+    if not ok or not res then
+        setStatus("Failed to fetch raw script.")
+        return
+    end
+    setStatus("Running fetched script...")
+    local ok2, err2 = pcall(function()
+        local fn = loadstring and loadstring(res) or load and load(res)
+        if fn then fn() else error("loadstring missing") end
+    end)
+    if not ok2 then
+        setStatus("Runtime error: "..tostring(err2))
+        warn("RunRaw error:", err2)
+    else
+        setStatus("RunRaw finished.")
+    end
+end)
+
+SaveBtn.MouseButton1Click:Connect(function()
+    local content = TextBox.Text or ""
+    if content == "" then
+        setStatus("Editor empty, nothing to save.")
+        return
+    end
+    if not has_writefile then
+        setStatus("Save not supported by this executor.")
+        return
+    end
+    local filename = "script_"..tostring(os.time())..".txt"
+    local path = folder.."/"..filename
+    local ok, err = pcall(function() writefile(path, content) end)
+    if ok then
+        setStatus("Saved to "..path)
+        -- add to list
+        addScriptItem(filename, content)
+    else
+        setStatus("Save failed: "..tostring(err))
+    end
+end)
+
+LoadBtn.MouseButton1Click:Connect(function()
+    if not has_readfile or not has_isfile then
+        setStatus("Load not supported by this executor.")
+        return
+    end
+    -- try read most recent file
+    setStatus("Loading saved scripts from folder...")
+    local ok, files = pcall(function()
+        -- syn or exploit may not provide listfiles; fallback not available
+        if type(listfiles) == "function" then
+            return listfiles(folder)
+        else
+            error("listfiles not available")
+        end
+    end)
+    if not ok then
+        setStatus("Cannot list saved files on this executor.")
+        return
+    end
+    -- try show first file
+    if #files == 0 then
+        setStatus("No saved scripts found.")
+        return
+    end
+    local p = files[1]
+    local content = try_read(p)
+    if content then
+        TextBox.Text = content
+        setStatus("Loaded "..p)
+    else
+        setStatus("Failed to read "..tostring(p))
+    end
+end)
+
+-- Titlebar buttons
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+local minimized = false
+MinimizeBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    if minimized then
+        -- hide editor area, leave title and side
+        EditorFrame.Visible = false
+        Frame.Size = UDim2.new(0, 300, 0, 80)
+        Frame.Position = UDim2.new(0.4,0,0.4,0)
+        setStatus("Minimized")
+    else
+        EditorFrame.Visible = true
+        Frame.Size = UDim2.new(0,560,0,380)
+        Frame.Position = UDim2.new(0.25, 0, 0.2, 0)
+        setStatus("Restored")
+    end
+end)
+
+-- Toggle UI with RightShift
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        ScreenGui.Enabled = not ScreenGui.Enabled
+    end
+end)
+
+-- Final status
+setStatus("Test7 Pro ready. RightShift toggles UI. Use Run Raw to load raw URLs.")
+
+-- End of Test7 Pro
