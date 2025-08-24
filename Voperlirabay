@@ -1,209 +1,129 @@
 --[[
-  Advanced Custom Lirabay UI: Intro + Loading + Main Panel
-  Fully custom, dark theme, gradient, shadow, hover, responsive
+Lirabay UI Roblox - Full Feature Mobile Ready
+50% Fluent UI style, 50% Custom
+Place this LocalScript inside a ScreenGui named "LirabayUI"
 ]]
-
-local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
-local Player = Players.LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local gui = player:WaitForChild("PlayerGui"):WaitForChild("LirabayUI")
 
--- Clear previous UI
-if PlayerGui:FindFirstChild("CustomUI") then
-    PlayerGui.CustomUI:Destroy()
-end
+-- =========================
+-- Intro Setup
+-- =========================
+local intro = gui:WaitForChild("IntroFrame")
+local logo = intro:WaitForChild("Logo")
+local dots = intro:WaitForChild("Dots") -- optional TextLabel "..."
+intro.Visible = true
+logo.Position = UDim2.fromScale(0.5,0.6)
+logo.TextTransparency = 1
 
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "CustomUI"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = PlayerGui
+-- Fade in logo
+TweenService:Create(logo, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+    {TextTransparency = 0, Position = UDim2.fromScale(0.5,0.4)}):Play()
 
--- Helper tween function
-local function tween(obj, props, time, style, dir)
-    style = style or Enum.EasingStyle.Quad
-    dir = dir or Enum.EasingDirection.Out
-    local info = TweenInfo.new(time, style, dir)
-    local tw = TweenService:Create(obj, info, props)
-    tw:Play()
-    return tw
-end
-
--- =====================
--- INTRO SCREEN
--- =====================
-local IntroFrame = Instance.new("Frame")
-IntroFrame.Size = UDim2.new(1,0,1,0)
-IntroFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
-IntroFrame.Parent = ScreenGui
-
--- Glow gradient background
-local IntroGradient = Instance.new("UIGradient")
-IntroGradient.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(0,255,255)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(0,100,255))
-}
-IntroGradient.Rotation = 45
-IntroGradient.Parent = IntroFrame
-
-local IntroLabel = Instance.new("TextLabel")
-IntroLabel.Size = UDim2.new(0.6,0,0.2,0)
-IntroLabel.Position = UDim2.new(0.2,0,0.4,0)
-IntroLabel.BackgroundTransparency = 1
-IntroLabel.Text = "Lirabay Custom UI"
-IntroLabel.TextColor3 = Color3.fromRGB(255,255,255)
-IntroLabel.Font = Enum.Font.GothamBold
-IntroLabel.TextScaled = true
-IntroLabel.Parent = IntroFrame
-IntroLabel.TextTransparency = 1
-
--- Glow effect
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Thickness = 2
-UIStroke.Color = Color3.fromRGB(0,255,255)
-UIStroke.Parent = IntroLabel
-
--- Slide + fade in
-IntroLabel.Position = UDim2.new(0.2,-200,0.4,0)
-tween(IntroLabel, {TextTransparency=0, Position=UDim2.new(0.2,0,0.4,0)}, 1)
-
--- After 2s, fade out
-delay(2, function()
-    tween(IntroFrame, {BackgroundTransparency=1}, 1)
-    tween(IntroLabel, {TextTransparency=1}, 1)
-    wait(1)
-    IntroFrame:Destroy()
-    showMainUI()
+-- Simple loading dots animation
+spawn(function()
+    local count = 0
+    while intro.Visible do
+        count = (count % 3) + 1
+        dots.Text = string.rep(".", count)
+        wait(0.5)
+    end
 end)
 
--- =====================
--- MAIN UI
--- =====================
-function showMainUI()
-    -- Main container
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0.7,0,0.7,0)
-    MainFrame.Position = UDim2.new(0.15,0,0.15,0)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Parent = ScreenGui
-    MainFrame.ClipsDescendants = true
+-- Wait and hide intro
+wait(3)
+intro.Visible = false
+local mainFrame = gui:WaitForChild("MainFrame")
+mainFrame.Visible = true
 
-    -- Shadow
-    local MainStroke = Instance.new("UIStroke")
-    MainStroke.Thickness = 2
-    MainStroke.Color = Color3.fromRGB(50,50,50)
-    MainStroke.Parent = MainFrame
+-- =========================
+-- Tabs Setup
+-- =========================
+local tabs = {
+    Dashboard = mainFrame:WaitForChild("DashboardTab"),
+    Scripts = mainFrame:WaitForChild("ScriptsTab"),
+    Explorer = mainFrame:WaitForChild("ExplorerTab")
+}
 
-    -- Sidebar
-    local Sidebar = Instance.new("Frame")
-    Sidebar.Size = UDim2.new(0,150,1,0)
-    Sidebar.Position = UDim2.new(0,0,0,0)
-    Sidebar.BackgroundColor3 = Color3.fromRGB(25,25,25)
-    Sidebar.Parent = MainFrame
+local buttons = {
+    DashboardBtn = mainFrame.Sidebar:WaitForChild("DashboardBtn"),
+    ScriptsBtn = mainFrame.Sidebar:WaitForChild("ScriptsBtn"),
+    ExplorerBtn = mainFrame.Sidebar:WaitForChild("ExplorerBtn")
+}
 
-    local Tabs = {"Home","Scripts","Settings","Logs"}
-    local TabButtons = {}
-    for i,tabName in pairs(Tabs) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1,0,0,50)
-        btn.Position = UDim2.new(0,0,0,(i-1)*50)
-        btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
-        btn.BorderSizePixel = 0
-        btn.Text = tabName
-        btn.TextColor3 = Color3.fromRGB(255,255,255)
-        btn.Font = Enum.Font.Gotham
-        btn.TextScaled = true
-        btn.Parent = Sidebar
-        TabButtons[tabName] = btn
+local function hideAllTabs()
+    for _, frame in pairs(tabs) do frame.Visible = false end
+end
 
-        -- Hover effect
-        btn.MouseEnter:Connect(function()
-            tween(btn, {BackgroundColor3=Color3.fromRGB(50,50,50)}, 0.2)
-        end)
-        btn.MouseLeave:Connect(function()
-            tween(btn, {BackgroundColor3=Color3.fromRGB(35,35,35)}, 0.2)
-        end)
-    end
-
-    -- Main panel
-    local MainPanel = Instance.new("Frame")
-    MainPanel.Size = UDim2.new(1,-150,1,0)
-    MainPanel.Position = UDim2.new(0,150,0,0)
-    MainPanel.BackgroundColor3 = Color3.fromRGB(40,40,40)
-    MainPanel.Parent = MainFrame
-
-    -- =====================
-    -- LOADING PANEL
-    -- =====================
-    local LoadingPanel = Instance.new("Frame")
-    LoadingPanel.Size = UDim2.new(0.6,0,0.2,0)
-    LoadingPanel.Position = UDim2.new(0.2,0,0.35,0)
-    LoadingPanel.BackgroundColor3 = Color3.fromRGB(25,25,25)
-    LoadingPanel.BorderSizePixel = 0
-    LoadingPanel.Parent = MainPanel
-
-    -- Progress bar background
-    local ProgressBg = Instance.new("Frame")
-    ProgressBg.Size = UDim2.new(0.8,0,0,20)
-    ProgressBg.Position = UDim2.new(0.1,0,0.3,0)
-    ProgressBg.BackgroundColor3 = Color3.fromRGB(60,60,60)
-    ProgressBg.Parent = LoadingPanel
-
-    -- Progress bar
-    local ProgressBar = Instance.new("Frame")
-    ProgressBar.Size = UDim2.new(0,0,1,0)
-    ProgressBar.BackgroundColor3 = Color3.fromRGB(0,255,255)
-    ProgressBar.Parent = ProgressBg
-
-    -- Progress text
-    local ProgressText = Instance.new("TextLabel")
-    ProgressText.Size = UDim2.new(1,0,1,0)
-    ProgressText.Position = UDim2.new(0,0,0,0)
-    ProgressText.BackgroundTransparency = 1
-    ProgressText.Text = "0%"
-    ProgressText.TextColor3 = Color3.fromRGB(255,255,255)
-    ProgressText.Font = Enum.Font.Gotham
-    ProgressText.TextScaled = true
-    ProgressText.Parent = ProgressBg
-
-    -- Circle loader
-    local Circle = Instance.new("Frame")
-    Circle.Size = UDim2.new(0,50,0,50)
-    Circle.Position = UDim2.new(0.85,0,0.3,0)
-    Circle.BackgroundColor3 = Color3.fromRGB(0,0,0)
-    Circle.BorderSizePixel = 0
-    Circle.Parent = LoadingPanel
-    Circle.AnchorPoint = Vector2.new(0.5,0.5)
-    Circle.Position = UDim2.new(0.85,0,0.5,0)
-    Circle.ClipsDescendants = true
-
-    local CircleStroke = Instance.new("UIStroke")
-    CircleStroke.Thickness = 4
-    CircleStroke.Color = Color3.fromRGB(0,255,255)
-    CircleStroke.Parent = Circle
-
-    -- Animate loading
-    local progress = 0
-    spawn(function()
-        while progress < 1 do
-            progress = progress + 0.01
-            ProgressBar.Size = UDim2.new(progress,0,1,0)
-            ProgressText.Text = math.floor(progress*100).."%"
-            Circle.Rotation = Circle.Rotation + 5
-            wait(0.03)
-        end
-        wait(0.5)
-        LoadingPanel:Destroy()
+-- Tab switching with touch effect & Fluent style
+for name, btn in pairs(buttons) do
+    btn.MouseButton1Click:Connect(function()
+        hideAllTabs()
+        tabs[name].Visible = true
+        
+        -- Touch effect: Fluent blue flash
+        local originalColor = btn.BackgroundColor3
+        btn.BackgroundColor3 = Color3.fromRGB(0, 120, 212)
+        wait(0.15)
+        btn.BackgroundColor3 = originalColor
     end)
+end
 
-    -- Example main label
-    local MainLabel = Instance.new("TextLabel")
-    MainLabel.Size = UDim2.new(0.8,0,0.1,0)
-    MainLabel.Position = UDim2.new(0.1,0,0.1,0)
-    MainLabel.BackgroundTransparency = 1
-    MainLabel.Text = "Welcome to Custom Lirabay UI!"
-    MainLabel.TextColor3 = Color3.fromRGB(255,255,255)
-    MainLabel.Font = Enum.Font.GothamBold
-    MainLabel.TextScaled = true
-    MainLabel.Parent = MainPanel
+-- =========================
+-- Modal Popup
+-- =========================
+local modal = gui:WaitForChild("ModalFrame")
+modal.Visible = false
+modal.BackgroundTransparency = 1
+
+local function showModal(title,msg)
+    modal.Visible = true
+    modal.Title.Text = title
+    modal.Message.Text = msg
+    TweenService:Create(modal, TweenInfo.new(0.5), {BackgroundTransparency=0}):Play()
+end
+local function closeModal()
+    TweenService:Create(modal, TweenInfo.new(0.5), {BackgroundTransparency=1}):Play()
+    wait(0.5)
+    modal.Visible = false
+end
+modal.CloseBtn.MouseButton1Click:Connect(closeModal)
+
+-- =========================
+-- Toast Notification
+-- =========================
+local toastTemplate = gui:WaitForChild("ToastFrame")
+local function showToast(text)
+    local toast = toastTemplate:Clone()
+    toast.TextLabel.Text = text
+    toast.Parent = gui
+    toast.Visible = true
+    toast.BackgroundTransparency = 0
+    toast.TextLabel.TextTransparency = 0
+    TweenService:Create(toast, TweenInfo.new(2), {BackgroundTransparency=1, TextLabel={TextTransparency=1}}):Play()
+    delay(2,function() toast:Destroy() end)
+end
+
+-- =========================
+-- Demo Buttons for Modal/Toast
+-- =========================
+buttons.DashboardBtn.MouseButton1Click:Connect(function()
+    showToast("Welcome to Dashboard!")
+end)
+buttons.ScriptsBtn.MouseButton1Click:Connect(function()
+    showModal("Scripts Tab","This is a demo modal for Scripts tab.")
+end)
+buttons.ExplorerBtn.MouseButton1Click:Connect(function()
+    showToast("Explorer Tab Active!")
+end)
+
+-- =========================
+-- Optional: Tab entrance animation
+-- =========================
+for _, tab in pairs(tabs) do
+    tab.Position = UDim2.fromScale(1,0) -- offscreen right
+    tab.Visible = true
+    TweenService:Create(tab, TweenInfo.new(0.5), {Position=UDim2.fromScale(0,0)}):Play()
 end
