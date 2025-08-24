@@ -1,129 +1,556 @@
---[[
-Lirabay UI Roblox - Full Feature Mobile Ready
-50% Fluent UI style, 50% Custom
-Place this LocalScript inside a ScreenGui named "LirabayUI"
-]]
-local TweenService = game:GetService("TweenService")
+-- LocalScript: Fluent Spcit UI nâng cấp (Intro + Tabs + Save/Execute)
+-- Dán vào LocalScript hoặc chạy bằng executor. Sử dụng link Fluent do bạn cung cấp.
+-- Link: https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua
+
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
-local gui = player:WaitForChild("PlayerGui"):WaitForChild("LirabayUI")
+local pg = player:WaitForChild("PlayerGui")
 
--- =========================
--- Intro Setup
--- =========================
-local intro = gui:WaitForChild("IntroFrame")
-local logo = intro:WaitForChild("Logo")
-local dots = intro:WaitForChild("Dots") -- optional TextLabel "..."
-intro.Visible = true
-logo.Position = UDim2.fromScale(0.5,0.6)
-logo.TextTransparency = 1
-
--- Fade in logo
-TweenService:Create(logo, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-    {TextTransparency = 0, Position = UDim2.fromScale(0.5,0.4)}):Play()
-
--- Simple loading dots animation
-spawn(function()
-    local count = 0
-    while intro.Visible do
-        count = (count % 3) + 1
-        dots.Text = string.rep(".", count)
-        wait(0.5)
-    end
+-- try load Fluent library (user-provided)
+local ok, Fluent = pcall(function()
+    return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 end)
 
--- Wait and hide intro
-wait(3)
-intro.Visible = false
-local mainFrame = gui:WaitForChild("MainFrame")
-mainFrame.Visible = true
-
--- =========================
--- Tabs Setup
--- =========================
-local tabs = {
-    Dashboard = mainFrame:WaitForChild("DashboardTab"),
-    Scripts = mainFrame:WaitForChild("ScriptsTab"),
-    Explorer = mainFrame:WaitForChild("ExplorerTab")
+-- Theme colors (Fluent-like light theme + dark fallback)
+local Theme = {
+    Light = {
+        Background = Color3.fromRGB(243,243,243),
+        Card = Color3.fromRGB(255,255,255),
+        TopBar = Color3.fromRGB(230,230,230),
+        Text = Color3.fromRGB(32,32,32),
+        Accent = Color3.fromRGB(0,120,212) -- Fluent blue
+    },
+    Dark = {
+        Background = Color3.fromRGB(30,30,30),
+        Card = Color3.fromRGB(40,40,40),
+        TopBar = Color3.fromRGB(45,45,45),
+        Text = Color3.fromRGB(240,240,240),
+        Accent = Color3.fromRGB(0,120,212)
+    }
 }
+local currentThemeName = "Light"
+local currentTheme = Theme[currentThemeName]
 
-local buttons = {
-    DashboardBtn = mainFrame.Sidebar:WaitForChild("DashboardBtn"),
-    ScriptsBtn = mainFrame.Sidebar:WaitForChild("ScriptsBtn"),
-    ExplorerBtn = mainFrame.Sidebar:WaitForChild("ExplorerBtn")
-}
-
-local function hideAllTabs()
-    for _, frame in pairs(tabs) do frame.Visible = false end
+-- Helper: safe create
+local function new(class, props)
+    local obj = Instance.new(class)
+    if props then
+        for k,v in pairs(props) do
+            if k ~= "Parent" then
+                obj[k] = v
+            end
+        end
+        obj.Parent = props.Parent
+    end
+    return obj
 end
 
--- Tab switching with touch effect & Fluent style
-for name, btn in pairs(buttons) do
-    btn.MouseButton1Click:Connect(function()
-        hideAllTabs()
-        tabs[name].Visible = true
-        
-        -- Touch effect: Fluent blue flash
-        local originalColor = btn.BackgroundColor3
-        btn.BackgroundColor3 = Color3.fromRGB(0, 120, 212)
-        wait(0.15)
-        btn.BackgroundColor3 = originalColor
+-- Destroy any previous UI
+local existing = pg:FindFirstChild("FluentSpcitUI")
+if existing then existing:Destroy() end
+
+-- Root ScreenGui
+local screenGui = new("ScreenGui", {Name = "FluentSpcitUI", Parent = pg, ResetOnSpawn = false})
+-- Use ZIndexBehavior to ensure on top
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Intro Frame (full screen)
+local intro = new("Frame", {
+    Name = "Intro",
+    Parent = screenGui,
+    Size = UDim2.new(1,0,1,0),
+    Position = UDim2.new(0,0,0,0),
+    BackgroundColor3 = currentTheme.Background
+})
+new("UICorner", {Parent = intro, CornerRadius = UDim.new(0,0)})
+
+local logoText = new("TextLabel", {
+    Parent = intro,
+    Size = UDim2.new(1,0,0,80),
+    Position = UDim2.new(0,0,0.4,-40),
+    BackgroundTransparency = 1,
+    Text = "Spcit",
+    TextColor3 = currentTheme.Text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 48,
+    TextYAlignment = Enum.TextYAlignment.Center
+})
+
+local loading = new("TextLabel", {
+    Parent = intro,
+    Size = UDim2.new(1,0,0,30),
+    Position = UDim2.new(0,0,0.63,0),
+    BackgroundTransparency = 1,
+    Text = "Loading...",
+    TextColor3 = currentTheme.Text,
+    Font = Enum.Font.Gotham,
+    TextSize = 20
+})
+
+-- Intro animation: fade in text, wait, slide up destroy
+logoText.TextTransparency = 1
+loading.TextTransparency = 1
+TweenService:Create(logoText, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0}):Play()
+TweenService:Create(loading, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0}):Play()
+task.delay(1.2, function()
+    TweenService:Create(intro, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0,0,-1,0)}):Play()
+    task.delay(0.85, function() if intro and intro.Parent then intro:Destroy() end end)
+end)
+
+-- Main Window (card)
+local main = new("Frame", {
+    Name = "MainWindow",
+    Parent = screenGui,
+    Size = UDim2.new(0,700,0,420),
+    Position = UDim2.new(0.5,-350,0.5,-210),
+    BackgroundColor3 = currentTheme.Background,
+    BorderSizePixel = 0,
+})
+local mainCorner = new("UICorner", {Parent = main, CornerRadius = UDim.new(0,12)})
+local mainStroke = new("UIStroke", {Parent = main, Color = Color3.fromRGB(200,200,200), Thickness = 1, Transparency = 0.8})
+
+-- Shadow (simple simulated by image or stroke) - kept minimal
+-- Top Bar
+local topBar = new("Frame", {
+    Parent = main,
+    Size = UDim2.new(1,0,0,56),
+    Position = UDim2.new(0,0,0,0),
+    BackgroundColor3 = currentTheme.TopBar,
+    BorderSizePixel = 0
+})
+new("UICorner", {Parent = topBar, CornerRadius = UDim.new(0,12)})
+
+local title = new("TextLabel", {
+    Parent = topBar,
+    Size = UDim2.new(0.6,0,1,0),
+    Position = UDim2.new(0.03,0,0,0),
+    BackgroundTransparency = 1,
+    Text = "Spcit Executor",
+    TextColor3 = currentTheme.Text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local btnMinimize = new("TextButton", {
+    Parent = topBar,
+    Size = UDim2.new(0,36,0,36),
+    Position = UDim2.new(1,-84,0,10),
+    BackgroundColor3 = Color3.fromRGB(230,230,230),
+    Text = "_",
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextColor3 = currentTheme.Text,
+    BorderSizePixel = 0
+})
+new("UICorner", {Parent = btnMinimize, CornerRadius = UDim.new(0,6)})
+
+local btnClose = new("TextButton", {
+    Parent = topBar,
+    Size = UDim2.new(0,36,0,36),
+    Position = UDim2.new(1,-42,0,10),
+    BackgroundColor3 = Color3.fromRGB(220,80,80),
+    Text = "X",
+    Font = Enum.Font.GothamBold,
+    TextSize = 18,
+    TextColor3 = Color3.fromRGB(255,255,255),
+    BorderSizePixel = 0
+})
+new("UICorner", {Parent = btnClose, CornerRadius = UDim.new(0,6)})
+
+-- Tab bar (horizontal)
+local tabBar = new("Frame", {
+    Parent = main,
+    Size = UDim2.new(1,0,0,48),
+    Position = UDim2.new(0,0,0,56),
+    BackgroundTransparency = 1
+})
+local tabNames = {"Script","Settings","Info"}
+local tabButtons = {}
+local tabButtonWidth = 160
+local underline = new("Frame", {
+    Parent = tabBar,
+    Size = UDim2.new(0, tabButtonWidth - 28, 0, 3),
+    Position = UDim2.new(0, 14, 1, -6),
+    BackgroundColor3 = currentTheme.Accent,
+    BorderSizePixel = 0
+})
+new("UICorner", {Parent = underline, CornerRadius = UDim.new(0,4)})
+
+for i,name in ipairs(tabNames) do
+    local btn = new("TextButton", {
+        Parent = tabBar,
+        Size = UDim2.new(0, tabButtonWidth, 1, 0),
+        Position = UDim2.new(0,(i-1)*tabButtonWidth,0,0),
+        BackgroundTransparency = 1,
+        Text = name,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 16,
+        TextColor3 = currentTheme.Text
+    })
+    tabButtons[name] = btn
+end
+
+-- Pages container
+local pagesFolder = new("Folder", {Parent = main, Name = "Pages"})
+local pages = {}
+for i,name in ipairs(tabNames) do
+    local page = new("Frame", {
+        Parent = pagesFolder,
+        Name = name.."Page",
+        Size = UDim2.new(1,-20,1,-120),
+        Position = UDim2.new(0,10,0,120),
+        BackgroundColor3 = currentTheme.Card,
+        BorderSizePixel = 0,
+        Visible = (name == "Script")
+    })
+    new("UICorner", {Parent = page, CornerRadius = UDim.new(0,8)})
+    pages[name] = page
+end
+
+-- Make main draggable
+do
+    local dragging = false
+    local dragInput, dragStart, startPos
+    topBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = main.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    topBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
     end)
 end
 
--- =========================
--- Modal Popup
--- =========================
-local modal = gui:WaitForChild("ModalFrame")
-modal.Visible = false
-modal.BackgroundTransparency = 1
+-- Script Tab contents
+local scriptPage = pages["Script"]
+local scriptBox = new("TextBox", {
+    Parent = scriptPage,
+    Size = UDim2.new(1,-24,1,-84),
+    Position = UDim2.new(0,12,0,12),
+    BackgroundColor3 = Color3.fromRGB(245,245,245),
+    TextColor3 = currentTheme.Text,
+    Text = "-- Paste your Lua script here",
+    ClearTextOnFocus = false,
+    MultiLine = true,
+    Font = Enum.Font.Code,
+    TextSize = 16
+})
+new("UICorner", {Parent = scriptBox, CornerRadius = UDim.new(0,6)})
 
-local function showModal(title,msg)
-    modal.Visible = true
-    modal.Title.Text = title
-    modal.Message.Text = msg
-    TweenService:Create(modal, TweenInfo.new(0.5), {BackgroundTransparency=0}):Play()
-end
-local function closeModal()
-    TweenService:Create(modal, TweenInfo.new(0.5), {BackgroundTransparency=1}):Play()
-    wait(0.5)
-    modal.Visible = false
-end
-modal.CloseBtn.MouseButton1Click:Connect(closeModal)
+local btnExecute = new("TextButton", {
+    Parent = scriptPage,
+    Size = UDim2.new(0,120,0,36),
+    Position = UDim2.new(0,12,1,-48),
+    BackgroundColor3 = currentTheme.Accent,
+    Text = "Execute",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(255,255,255),
+    BorderSizePixel = 0
+})
+new("UICorner", {Parent = btnExecute, CornerRadius = UDim.new(0,8)})
 
--- =========================
--- Toast Notification
--- =========================
-local toastTemplate = gui:WaitForChild("ToastFrame")
-local function showToast(text)
-    local toast = toastTemplate:Clone()
-    toast.TextLabel.Text = text
-    toast.Parent = gui
-    toast.Visible = true
-    toast.BackgroundTransparency = 0
-    toast.TextLabel.TextTransparency = 0
-    TweenService:Create(toast, TweenInfo.new(2), {BackgroundTransparency=1, TextLabel={TextTransparency=1}}):Play()
-    delay(2,function() toast:Destroy() end)
-end
+local btnClear = new("TextButton", {
+    Parent = scriptPage,
+    Size = UDim2.new(0,90,0,36),
+    Position = UDim2.new(0,144,1,-48),
+    BackgroundColor3 = Color3.fromRGB(200,200,200),
+    Text = "Clear",
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    TextColor3 = currentTheme.Text,
+    BorderSizePixel = 0
+})
+new("UICorner", {Parent = btnClear, CornerRadius = UDim.new(0,8)})
 
--- =========================
--- Demo Buttons for Modal/Toast
--- =========================
-buttons.DashboardBtn.MouseButton1Click:Connect(function()
-    showToast("Welcome to Dashboard!")
+local btnSave = new("TextButton", {
+    Parent = scriptPage,
+    Size = UDim2.new(0,110,0,36),
+    Position = UDim2.new(0,248,1,-48),
+    BackgroundColor3 = Color3.fromRGB(230,230,230),
+    Text = "Save Script",
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    TextColor3 = currentTheme.Text,
+    BorderSizePixel = 0
+})
+new("UICorner", {Parent = btnSave, CornerRadius = UDim.new(0,8)})
+
+-- Recent scripts panel (right side)
+local recentPanel = new("Frame", {
+    Parent = scriptPage,
+    Size = UDim2.new(0,220,1,-24),
+    Position = UDim2.new(1,-232,0,12),
+    BackgroundColor3 = Color3.fromRGB(250,250,250),
+    BorderSizePixel = 0
+})
+new("UICorner", {Parent = recentPanel, CornerRadius = UDim.new(0,6)})
+local recentTitle = new("TextLabel", {
+    Parent = recentPanel,
+    Size = UDim2.new(1,0,0,34),
+    Position = UDim2.new(0,0,0,0),
+    BackgroundTransparency = 1,
+    Text = "Recent",
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextColor3 = currentTheme.Text
+})
+
+local recentList = new("ScrollingFrame", {
+    Parent = recentPanel,
+    Size = UDim2.new(1,-12,1,-44),
+    Position = UDim2.new(0,6,0,38),
+    CanvasSize = UDim2.new(0,0,0,0),
+    ScrollBarThickness = 6,
+    BackgroundTransparency = 1
+})
+local uiList = new("UIListLayout", {Parent = recentList, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,6)})
+uiList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    recentList.CanvasSize = UDim2.new(0,0,0, uiList.AbsoluteContentSize.Y + 8)
 end)
-buttons.ScriptsBtn.MouseButton1Click:Connect(function()
-    showModal("Scripts Tab","This is a demo modal for Scripts tab.")
-end)
-buttons.ExplorerBtn.MouseButton1Click:Connect(function()
-    showToast("Explorer Tab Active!")
+
+-- Storage for recent scripts
+local recentScripts = {} -- each item {name=..., code=...}
+local recentFileName = "spcit_recent_scripts.json"
+
+-- Try to load saved scripts (writefile/readfile exist in many executors)
+local function loadSaved()
+    recentScripts = {}
+    if pcall(function() return readfile end) then
+        local success, content = pcall(function() return readfile(recentFileName) end)
+        if success and content and content ~= "" then
+            local ok2, data = pcall(function() return HttpService:JSONDecode(content) end)
+            if ok2 and type(data) == "table" then
+                recentScripts = data
+            end
+        end
+    else
+        -- fallback: check for StringValue children in Gui
+        local store = screenGui:FindFirstChild("RecentStore")
+        if store then
+            for _,v in ipairs(store:GetChildren()) do
+                if v:IsA("StringValue") then
+                    local ok3, obj = pcall(function() return HttpService:JSONDecode(v.Value) end)
+                    if ok3 and type(obj) == "table" then
+                        table.insert(recentScripts, obj)
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function saveToStorage()
+    local encoded = HttpService:JSONEncode(recentScripts)
+    if pcall(function() return writefile end) then
+        pcall(function() writefile(recentFileName, encoded) end)
+    else
+        -- fallback store in gui values
+        local store = screenGui:FindFirstChild("RecentStore") or new("Folder", {Parent = screenGui, Name = "RecentStore"})
+        -- clear
+        for _,c in ipairs(store:GetChildren()) do pcall(function() c:Destroy() end) end
+        for i,item in ipairs(recentScripts) do
+            local sv = new("StringValue", {Parent = store, Name = "Script"..i, Value = HttpService:JSONEncode(item)})
+        end
+    end
+end
+
+local function refreshRecentUI()
+    for _,c in ipairs(recentList:GetChildren()) do
+        if not c:IsA("UIListLayout") then pcall(function() c:Destroy() end) end
+    end
+    for i,item in ipairs(recentScripts) do
+        local btn = new("TextButton", {
+            Parent = recentList,
+            Size = UDim2.new(1, -12, 0, 36),
+            BackgroundColor3 = Color3.fromRGB(240,240,240),
+            Text = item.name or ("Script "..i),
+            Font = Enum.Font.Gotham,
+            TextSize = 14,
+            TextColor3 = currentTheme.Text,
+            BorderSizePixel = 0
+        })
+        new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,6)})
+        btn.MouseButton1Click:Connect(function()
+            scriptBox.Text = item.code or ""
+        end)
+    end
+end
+
+-- load existing saved scripts (if any)
+loadSaved()
+refreshRecentUI()
+
+-- Button behaviors
+btnExecute.MouseButton1Click:Connect(function()
+    local code = scriptBox.Text or ""
+    if code == "" then return end
+    -- run safely with pcall; in exploit context loadstring exists
+    local success, err = pcall(function()
+        local f = loadstring(code)
+        if type(f) == "function" then
+            f()
+        end
+    end)
+    if not success then
+        warn("Script Error: "..tostring(err))
+        -- show small feedback
+        btnExecute.Text = "Error"
+        task.delay(1.2, function() if btnExecute then btnExecute.Text = "Execute" end end)
+    else
+        btnExecute.Text = "Done"
+        task.delay(0.9, function() if btnExecute then btnExecute.Text = "Execute" end end)
+        -- add to recent (top)
+        table.insert(recentScripts, 1, {name = ("Saved %s"):format(os.date("%H:%M:%S")), code = code})
+        -- cap to 12 items
+        while #recentScripts > 12 do table.remove(recentScripts) end
+        saveToStorage()
+        refreshRecentUI()
+    end
 end)
 
--- =========================
--- Optional: Tab entrance animation
--- =========================
-for _, tab in pairs(tabs) do
-    tab.Position = UDim2.fromScale(1,0) -- offscreen right
-    tab.Visible = true
-    TweenService:Create(tab, TweenInfo.new(0.5), {Position=UDim2.fromScale(0,0)}):Play()
+btnClear.MouseButton1Click:Connect(function()
+    scriptBox.Text = ""
+end)
+
+btnSave.MouseButton1Click:Connect(function()
+    local name = "Saved "..os.date("%Y-%m-%d %H:%M:%S")
+    table.insert(recentScripts, 1, {name = name, code = scriptBox.Text or ""})
+    while #recentScripts > 12 do table.remove(recentScripts) end
+    saveToStorage()
+    refreshRecentUI()
+    -- feedback
+    btnSave.Text = "Saved"
+    task.delay(0.9, function() if btnSave then btnSave.Text = "Save Script" end end)
+end)
+
+-- Settings Page contents
+local settingsPage = pages["Settings"]
+local themeToggleLabel = new("TextLabel", {
+    Parent = settingsPage,
+    Size = UDim2.new(0,200,0,28),
+    Position = UDim2.new(0,20,0,20),
+    BackgroundTransparency = 1,
+    Text = "Theme:",
+    Font = Enum.Font.Gotham,
+    TextSize = 16,
+    TextColor3 = currentTheme.Text,
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+local themeToggle = new("TextButton", {
+    Parent = settingsPage,
+    Size = UDim2.new(0,120,0,36),
+    Position = UDim2.new(0,120,0,12),
+    BackgroundColor3 = Color3.fromRGB(230,230,230),
+    Text = "Light",
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    TextColor3 = currentTheme.Text
+})
+new("UICorner", {Parent = themeToggle, CornerRadius = UDim.new(0,8)})
+
+themeToggle.MouseButton1Click:Connect(function()
+    if currentThemeName == "Light" then
+        currentThemeName = "Dark"
+    else
+        currentThemeName = "Light"
+    end
+    currentTheme = Theme[currentThemeName]
+    -- apply theme colors (simple)
+    main.BackgroundColor3 = currentTheme.Background
+    topBar.BackgroundColor3 = currentTheme.TopBar
+    title.TextColor3 = currentTheme.Text
+    btnExecute.BackgroundColor3 = currentTheme.Accent
+    btnExecute.TextColor3 = Color3.fromRGB(255,255,255)
+    btnClear.BackgroundColor3 = (currentThemeName=="Light" and Color3.fromRGB(200,200,200) or Color3.fromRGB(70,70,70))
+    btnClear.TextColor3 = currentTheme.Text
+    btnSave.BackgroundColor3 = (currentThemeName=="Light" and Color3.fromRGB(230,230,230) or Color3.fromRGB(60,60,60))
+    btnSave.TextColor3 = currentTheme.Text
+    scriptBox.BackgroundColor3 = (currentThemeName=="Light" and Color3.fromRGB(245,245,245) or Color3.fromRGB(54,54,54))
+    scriptBox.TextColor3 = currentTheme.Text
+    recentPanel.BackgroundColor3 = (currentThemeName=="Light" and Color3.fromRGB(250,250,250) or Color3.fromRGB(44,44,44))
+    themeToggle.Text = (currentThemeName=="Light" and "Light" or "Dark")
+    -- update recent items colors
+    refreshRecentUI()
+end)
+
+-- Info Page contents
+local infoPage = pages["Info"]
+local infoLabel = new("TextLabel", {
+    Parent = infoPage,
+    Size = UDim2.new(1,-40,0,120),
+    Position = UDim2.new(0,20,0,20),
+    BackgroundTransparency = 1,
+    Text = "Spcit Executor\nVersion: 1.0\nAuthor: You\nLibrary: Fluent (optional)",
+    Font = Enum.Font.Gotham,
+    TextSize = 16,
+    TextColor3 = currentTheme.Text,
+    TextWrapped = true,
+    TextYAlignment = Enum.TextYAlignment.Top
+})
+
+-- Tab switching with underline tween
+local function switchToTab(name)
+    for n, p in pairs(pages) do
+        p.Visible = (n == name)
+    end
+    local index = table.find(tabNames, name) or 1
+    local targetX = (index-1) * tabButtonWidth + 14
+    TweenService:Create(underline, TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, targetX, 1, -6)}):Play()
 end
+
+for name, btn in pairs(tabButtons) do
+    btn.MouseButton1Click:Connect(function()
+        switchToTab(name)
+    end)
+end
+
+-- Minimize / Close behaviors
+local minimized = false
+btnMinimize.MouseButton1Click:Connect(function()
+    if minimized then
+        main.Size = UDim2.new(0,700,0,420)
+        minimized = false
+    else
+        main.Size = UDim2.new(0,340,0,56)
+        minimized = true
+    end
+end)
+btnClose.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+end)
+
+-- If Fluent library is present and exposes helpful helpers, attempt to use them
+if ok and type(Fluent) == "table" then
+    -- Try to call a common initializer if exists (best-effort)
+    pcall(function()
+        if Fluent.Init then Fluent.Init(screenGui) end
+        -- If library provides themed components, user can later integrate; we keep manual UI working
+    end)
+end
+
+-- Final small entrance animation for main window
+main.AnchorPoint = Vector2.new(0.5,0.5)
+main.Position = UDim2.new(0.5, -350, 0.5, -260) -- slightly higher start
+main.Size = UDim2.new(0,700,0,0)
+TweenService:Create(main, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0,700,0,420), Position = UDim2.new(0.5,-350,0.5,-210)}):Play()
+
+-- End of script
