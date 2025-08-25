@@ -1,535 +1,774 @@
--- Lirabay UI v1.1 — Wind-style (Sidebar left) with neon-yellow accent
--- Features: Intro (glow), Sidebar tabs (Home, Visual, Scripts, Settings),
---           Main panel with rounded corners + faux shadow, Fade+Slide animations,
---           Reload button (loads from GitHub raw), mobile scaling
--- USAGE: Put this into a LocalScript and/or upload to GitHub raw, then load with game:HttpGet()
+--[[
+Full Lirabay UI - LocalScript
+Tính năng:
+- Sidebar tabs: Home, Scripts, Settings
+- Danh sách script (có thể add raw GitHub links)
+- Search filter
+- Execute, Copy, Open Raw Link
+- Auto-execute (on open) cho những script đã bật
+- Keybind để toggle UI (mặc định = RightShift)
+- Dark/Light theme
+- Tween animations cho đổi tab / mở đóng
+- Notifications nhỏ góc phải
+- Lưu cấu hình (theme, keybind, autoload) nếu executor hỗ trợ writefile/readfile
 
--- ========== CONFIG ==========
-local RAW_URL = "https://raw.githubusercontent.com/<username>/<repo>/main/LirabayUI.lua"
--- Replace the RAW_URL above with your actual GitHub raw file link before using Reload
+Cách dùng:
+- Thêm danh sách script vào table `SCRIPTS` (title, desc, url)
+- Dán script vào executor và chạy
+- Nếu executor hỗ trợ HttpGet, UI sẽ tải raw script khi nhấn Execute
+--]]
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local player = Players.LocalPlayer
-if not player then
-    -- In rare cases LocalPlayer is not ready — wait until available
-    player = Players.PlayerAdded:Wait()
-end
-
--- Theme (neon yellow accent)
-local THEME = {
-    Background = Color3.fromRGB(20,20,20),
-    Panel = Color3.fromRGB(15,15,15),
-    Sidebar = Color3.fromRGB(30,30,30),
-    Accent = Color3.fromRGB(255, 198, 50), -- neon yellow
-    Text = Color3.fromRGB(240,240,240),
-    Dim = Color3.fromRGB(0,0,0)
+-- -------------------------
+-- Cấu hình mặc định
+-- -------------------------
+local CONFIG_FILE = "lirabay_config.json" -- file local nếu executor hỗ trợ writefile/readfile
+local DEFAULT_CONFIG = {
+    theme = "dark",            -- "dark" hoặc "light"
+    toggleKey = "RightShift",  -- key string từ Enum.KeyCode
+    autoload = false,          -- có tự chạy script đánh dấu autoload không
+    windowOpen = true
 }
 
-local UI_BASE_WIDTH = 760  -- base size for desktop scaling
-local UI_BASE_HEIGHT = 420
-
-local TWEEN_TIME = 0.28
-local INTRO_TIME = 0.9
-local MOBILE_BREAKPOINT = 720 -- if viewport width < this, scale down UI
-
--- Tabs list (order = sidebar order)
-local TABS = {
-    { id = "home", label = "Home", icon = "🏠" },
-    { id = "visual", label = "Visual", icon = "🎨" },
-    { id = "scripts", label = "Scripts", icon = "📜" },
-    { id = "settings", label = "Settings", icon = "⚙️" },
+-- Danh sách script (thêm/sửa link raw ở đây). url phải trả về mã lua.
+local SCRIPTS = {
+    { title = "Infinite Yield (Demo)", desc = "Example script from raw (demo)", url = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source", tags = {"admin","explorer"}, autoload = false },
+    { title = "Example: Hello World", desc = "Script hiển thị message", url = "https://raw.githubusercontent.com/yourname/yourrepo/main/helloworld.lua", tags = {"demo"}, autoload = false },
+    -- Thêm item ở đây...
 }
 
--- ========== UTILITIES ==========
-local function new(cls, props)
-    local inst = Instance.new(cls)
-    if props then
-        for k,v in pairs(props) do
-            if k == "Parent" then
-                inst.Parent = v
-            else
-                inst[k] = v
-            end
-        end
-    end
-    return inst
-end
-
-local function tween(inst, props, info)
-    local tweenInfo = info or TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local t = TweenService:Create(inst, tweenInfo, props)
-    t:Play()
-    return t
-end
-
--- Ensure we don't create duplicate GUI if script runs twice
-local existing = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("LirabayUI")
-if existing then
-    existing:Destroy()
-end
-
--- ========== BUILD GUI ==========
-local screenGui = new("ScreenGui", { Name = "LirabayUI", ResetOnSpawn = false, Parent = player:WaitForChild("PlayerGui") })
-
--- Root container
-local root = new("Frame", {
-    Name = "Root",
-    Size = UDim2.new(0, UI_BASE_WIDTH, 0, UI_BASE_HEIGHT),
-    Position = UDim2.new(0.5, -UI_BASE_WIDTH/2, 0.5, -UI_BASE_HEIGHT/2),
-    AnchorPoint = Vector2.new(0.5,0.5),
-    BackgroundColor3 = THEME.Background,
-    BorderSizePixel = 0,
-    Parent = screenGui
-})
-new("UICorner", { CornerRadius = UDim.new(0, 16), Parent = root })
-
--- Fallback shadow (simulate drop shadow by duplicated frame behind)
-local shadow = new("Frame", {
-    Name = "Shadow",
-    Size = UDim2.new(1, 12, 1, 12),
-    Position = UDim2.new(0, 6, 0, 6),
-    BackgroundColor3 = Color3.fromRGB(0,0,0),
-    BorderSizePixel = 0,
-    ZIndex = 1,
-    Parent = root
-})
-shadow.BackgroundTransparency = 0.78
-new("UICorner", { CornerRadius = UDim.new(0, 18), Parent = shadow })
-
--- Main panel (on top)
-local panel = new("Frame", {
-    Name = "Panel",
-    Size = UDim2.new(1, 0, 1, 0),
-    Position = UDim2.new(0, 0, 0, 0),
-    BackgroundColor3 = THEME.Panel,
-    BorderSizePixel = 0,
-    ZIndex = 2,
-    Parent = root
-})
-new("UICorner", { CornerRadius = UDim.new(0, 14), Parent = panel })
-
--- Left sidebar
-local SIDEBAR_WIDTH = 92
-local sidebar = new("Frame", {
-    Name = "Sidebar",
-    Size = UDim2.new(0, SIDEBAR_WIDTH, 1, 0),
-    Position = UDim2.new(0, 0, 0, 0),
-    BackgroundColor3 = THEME.Sidebar,
-    BorderSizePixel = 0,
-    Parent = panel
-})
-new("UICorner", { CornerRadius = UDim.new(0, 12), Parent = sidebar })
-
-local sidebarLayout = new("UIListLayout", {
-    Parent = sidebar,
-    SortOrder = Enum.SortOrder.LayoutOrder,
-    Padding = UDim.new(0, 10)
-})
-
-local topSpacing = new("Frame", { Size = UDim2.new(1,0,0,14), BackgroundTransparency = 1, Parent = sidebar })
-
--- Tab container inside sidebar
-local tabButtons = {}
-
--- Right content area
-local contentArea = new("Frame", {
-    Name = "ContentArea",
-    Size = UDim2.new(1, -SIDEBAR_WIDTH, 1, 0),
-    Position = UDim2.new(0, SIDEBAR_WIDTH, 0, 0),
-    BackgroundTransparency = 1,
-    Parent = panel
-})
-
--- Inner content panel (dark translucent with inner padding)
-local innerPadding = 18
-local contentPanel = new("Frame", {
-    Name = "ContentPanel",
-    Size = UDim2.new(1, -innerPadding*2, 1, -innerPadding*2),
-    Position = UDim2.new(0, innerPadding, 0, innerPadding),
-    BackgroundColor3 = Color3.fromRGB(8,8,8),
-    BorderSizePixel = 0,
-    Parent = contentArea
-})
-new("UICorner", { CornerRadius = UDim.new(0, 12), Parent = contentPanel })
-
--- Glow border to mimic neon rim (thin)
-local glow = new("Frame", {
-    Name = "AccentGlow",
-    Size = UDim2.new(1, 8, 0, 6),
-    Position = UDim2.new(0, innerPadding, 0, -6),
-    BackgroundColor3 = THEME.Accent,
-    BorderSizePixel = 0,
-    Parent = contentArea
-})
-glow.BackgroundTransparency = 0.88
-new("UICorner", { CornerRadius = UDim.new(0, 6), Parent = glow })
-
--- Pages folder
-local pagesFolder = new("Folder", { Name = "Pages", Parent = contentPanel })
-
--- Title label
-local titleLabel = new("TextLabel", {
-    Name = "Title",
-    Size = UDim2.new(1, -20, 0, 40),
-    Position = UDim2.new(0, 10, 0, 8),
-    BackgroundTransparency = 1,
-    Text = "Lirabay UI",
-    TextColor3 = THEME.Text,
-    Font = Enum.Font.GothamBold,
-    TextSize = 20,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    Parent = contentPanel
-})
-
--- Center placeholder content text (will change per page)
-local function makePage(id, label)
-    local p = new("Frame", {
-        Name = id .. "_page",
-        Size = UDim2.new(1, -20, 1, -64),
-        Position = UDim2.new(0, 20, 0, 56),
-        BackgroundTransparency = 1,
-        Visible = false,
-        Parent = pagesFolder
-    })
-    local txt = new("TextLabel", {
-        Name = "MiddleText",
-        Size = UDim2.new(1, -40, 0, 36),
-        Position = UDim2.new(0, 20, 0, 20),
-        BackgroundTransparency = 1,
-        Text = ("Đây là trang %s"):format(label),
-        TextColor3 = THEME.Text,
-        Font = Enum.Font.Gotham,
-        TextSize = 16,
-        TextXAlignment = Enum.TextXAlignment.Center,
-        TextYAlignment = Enum.TextYAlignment.Center,
-        Parent = p
-    })
-    return p
-end
-
--- Create tab buttons & pages
-local selectedTabButton = nil
-local pages = {}
-
-for i,tabInfo in ipairs(TABS) do
-    local container = new("Frame", {
-        Name = tabInfo.id .. "_container",
-        Size = UDim2.new(1, -16, 0, 56),
-        BackgroundTransparency = 1,
-        LayoutOrder = i,
-        Parent = sidebar
-    })
-    local btn = new("TextButton", {
-        Name = tabInfo.id .. "_btn",
-        Size = UDim2.new(1, 0, 0, 44),
-        Position = UDim2.new(0, 8, 0, 0),
-        BackgroundColor3 = THEME.Sidebar,
-        BorderSizePixel = 0,
-        AutoButtonColor = false,
-        Text = "",
-        Parent = container
-    })
-    new("UICorner", { CornerRadius = UDim.new(0,10), Parent = btn })
-
-    -- left small icon background
-    local iconBg = new("Frame", {
-        Name = "IconBg",
-        Size = UDim2.new(0, 36, 0, 36),
-        Position = UDim2.new(0, 6, 0.5, -18),
-        BackgroundColor3 = Color3.fromRGB(40,40,40),
-        Parent = btn
-    })
-    new("UICorner", { CornerRadius = UDim.new(0,8), Parent = iconBg })
-
-    local iconLabel = new("TextLabel", {
-        Name = "Icon",
-        Size = UDim2.new(1,0,1,0),
-        BackgroundTransparency = 1,
-        Text = tabInfo.icon or "?",
-        Font = Enum.Font.GothamBold,
-        TextSize = 18,
-        TextColor3 = THEME.Text,
-        Parent = iconBg
-    })
-
-    local textLabel = new("TextLabel", {
-        Name = "Label",
-        Size = UDim2.new(1, -56, 1, 0),
-        Position = UDim2.new(0, 52, 0, 0),
-        BackgroundTransparency = 1,
-        Text = tabInfo.label,
-        Font = Enum.Font.Gotham,
-        TextSize = 14,
-        TextColor3 = THEME.Text,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = btn
-    })
-
-    -- small active accent bar (hidden by default)
-    local activeBar = new("Frame", {
-        Name = "ActiveBar",
-        Size = UDim2.new(0, 6, 0, 44),
-        Position = UDim2.new(0, 0, 0, 0),
-        BackgroundColor3 = THEME.Accent,
-        BorderSizePixel = 0,
-        Visible = false,
-        Parent = btn
-    })
-    new("UICorner", { CornerRadius = UDim.new(0,6), Parent = activeBar })
-
-    -- create page
-    local page = makePage(tabInfo.id, tabInfo.label)
-    pages[tabInfo.id] = page
-
-    -- click behavior
-    btn.Activated:Connect(function()
-        -- deselect previous
-        if selectedTabButton and selectedTabButton ~= btn then
-            selectedTabButton.BackgroundColor3 = THEME.Sidebar
-            local prevActive = selectedTabButton:FindFirstChild("ActiveBar")
-            if prevActive then prevActive.Visible = false end
-        end
-        -- select current
-        selectedTabButton = btn
-        btn.BackgroundColor3 = Color3.fromRGB(40,40,40)
-        local act = btn:FindFirstChild("ActiveBar")
-        if act then act.Visible = true end
-
-        -- animate pages: show this, hide others
-        for id,pg in pairs(pages) do
-            if pg == page then
-                pg.Visible = true
-                pg.Position = UDim2.new(1, 0, pg.Position.Y.Scale, pg.Position.Y.Offset) -- start off-right
-                tween(pg, { Position = UDim2.new(0, 20, pg.Position.Y.Scale, pg.Position.Y.Offset) }, TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
-                tween(pg, { BackgroundTransparency = 0 }, TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
-            else
-                if pg.Visible then
-                    tween(pg, { Position = UDim2.new(-1, 0, pg.Position.Y.Scale, pg.Position.Y.Offset) }, TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
-                    task.delay(TWEEN_TIME, function() pg.Visible = false end)
-                end
-            end
-        end
-
-        -- update title
-        titleLabel.Text = "Lirabay UI — " .. tabInfo.label
-    end)
-
-    table.insert(tabButtons, btn)
-
-    -- default select first tab
-    if i == 1 then
-        task.spawn(function()
-            -- small delay to allow GUI to fully construct
-            task.wait(0.03)
-            btn:Activate()
+-- -------------------------
+-- Helpers cho executor API (fallback-safe)
+-- -------------------------
+local function safeHttpGet(url)
+    local ok, res
+    -- try different possible APIs
+    if type(syn) == "table" and syn.request then
+        ok = pcall(function()
+            local r = syn.request({ Url = url, Method = "GET" })
+            res = r.Body
+        end)
+    elseif http and http.request then
+        ok = pcall(function()
+            local r = http.request({ Url = url, Method = "GET" })
+            res = r.Body
+        end)
+    else
+        ok = pcall(function()
+            res = game:HttpGet(url, true)
         end)
     end
+    if ok then return res end
+    return nil, "HttpGet failed"
 end
 
--- ========== Top Controls (right) ==========
--- Close & Minimize area
-local controls = new("Frame", {
-    Name = "Controls",
-    Size = UDim2.new(0, 120, 0, 32),
-    Position = UDim2.new(1, -132, 0, 12),
-    BackgroundTransparency = 1,
-    Parent = panel
-})
-
-local reloadBtn = new("TextButton", {
-    Name = "ReloadBtn",
-    Size = UDim2.new(0, 92, 0, 28),
-    Position = UDim2.new(1, -132, 0, 2),
-    BackgroundColor3 = THEME.Accent,
-    Text = "Reload UI",
-    TextColor3 = Color3.new(0,0,0),
-    Font = Enum.Font.GothamBold,
-    TextSize = 14,
-    BorderSizePixel = 0,
-    Parent = controls
-})
-new("UICorner", { CornerRadius = UDim.new(0,8), Parent = reloadBtn })
-
-reloadBtn.Activated:Connect(function()
-    -- reload from RAW_URL
-    -- IMPORTANT: Replace RAW_URL with your actual link before using
+local function safeSetClipboard(text)
     pcall(function()
-        screenGui:Destroy()
-        loadstring(game:HttpGet(RAW_URL))()
+        if setclipboard then setclipboard(text) end
     end)
-end)
+end
 
-local closeBtn = new("TextButton", {
-    Name = "CloseBtn",
-    Size = UDim2.new(0, 28, 0, 28),
-    Position = UDim2.new(1, -34, 0, 2),
-    BackgroundColor3 = Color3.fromRGB(40,40,40),
-    Text = "✕",
-    TextColor3 = THEME.Text,
-    Font = Enum.Font.GothamBold,
-    TextSize = 14,
-    BorderSizePixel = 0,
-    Parent = controls
-})
-new("UICorner", { CornerRadius = UDim.new(0,8), Parent = closeBtn })
-
-local minimized = false
-closeBtn.Activated:Connect(function()
-    if minimized then
-        panel.Visible = true
-        minimized = false
-    else
-        panel.Visible = false
-        minimized = true
-    end
-end)
-
--- ========== Intro Animation (centered overlay) ==========
-local introOverlay = new("Frame", {
-    Name = "IntroOverlay",
-    Size = UDim2.new(1,0,1,0),
-    Position = UDim2.new(0,0,0,0),
-    BackgroundColor3 = THEME.Panel,
-    ZIndex = 60,
-    Parent = screenGui
-})
-local introCorner = new("UICorner", { CornerRadius = UDim.new(0,0), Parent = introOverlay })
-
--- Glow label
-local introLabel = new("TextLabel", {
-    Name = "IntroLabel",
-    AnchorPoint = Vector2.new(0.5,0.5),
-    Position = UDim2.new(0.5, 0.5, 0, -10),
-    Size = UDim2.new(0, 10, 0, 30), -- start tiny
-    BackgroundTransparency = 1,
-    Text = "Lirabay",
-    Font = Enum.Font.GothamBlack,
-    TextSize = 42,
-    TextColor3 = THEME.Accent,
-    ZIndex = 61,
-    Parent = introOverlay
-})
-
--- neon glow effect: TextStroke + duplicate label with transparency
-local stroke = new("UIStroke", { Parent = introLabel, Color = THEME.Accent, Thickness = 6, Transparency = 0.6 })
-local outerGlow = new("TextLabel", {
-    Name = "OuterGlow",
-    AnchorPoint = introLabel.AnchorPoint,
-    Position = introLabel.Position,
-    Size = introLabel.Size,
-    BackgroundTransparency = 1,
-    Text = introLabel.Text,
-    Font = introLabel.Font,
-    TextSize = introLabel.TextSize,
-    TextColor3 = THEME.Accent,
-    ZIndex = 60,
-    Parent = introOverlay
-})
-outerGlow.TextTransparency = 0.85
-
--- animate intro
-task.spawn(function()
-    tween(introLabel, { Size = UDim2.new(0, 280, 0, 58) }, TweenInfo.new(INTRO_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
-    tween(outerGlow, { Size = UDim2.new(0, 300, 0, 64) }, TweenInfo.new(INTRO_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
-    task.wait(INTRO_TIME + 0.15)
-    tween(introOverlay, { BackgroundTransparency = 1 }, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
-    tween(introLabel, { TextTransparency = 1 }, TweenInfo.new(0.45))
-    tween(outerGlow, { TextTransparency = 1 }, TweenInfo.new(0.45))
-    task.wait(0.5)
-    introOverlay:Destroy()
-end)
-
--- ========== Responsiveness (scale for mobile) ==========
-local function adjustScale()
-    local size = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280,720)
-    local w = size.X
-    local h = size.Y
-
-    if w < MOBILE_BREAKPOINT then
-        -- mobile: smaller and full-width-ish
-        local scale = math.clamp(w / 820, 0.6, 0.95)
-        root.Size = UDim2.new(0, math.floor(UI_BASE_WIDTH * scale), 0, math.floor(UI_BASE_HEIGHT * scale))
-        root.Position = UDim2.new(0.5, - (UI_BASE_WIDTH*scale)/2, 0.52, - (UI_BASE_HEIGHT*scale)/2)
-    else
-        root.Size = UDim2.new(0, UI_BASE_WIDTH, 0, UI_BASE_HEIGHT)
-        root.Position = UDim2.new(0.5, -UI_BASE_WIDTH/2, 0.5, -UI_BASE_HEIGHT/2)
+local function safeWriteFile(name, content)
+    if writefile then
+        pcall(function() writefile(name, content) end)
     end
 end
 
-if workspace.CurrentCamera then
-    adjustScale()
-    workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(adjustScale)
-else
-    RunService.RenderStepped:Wait()
-    adjustScale()
+local function safeReadFile(name)
+    if isfile and readfile and isfile(name) then
+        local ok, content = pcall(function() return readfile(name) end)
+        if ok then return content end
+    end
+    return nil
 end
 
--- ========== Helper: Add small sample content to Scripts page (textbox + run) ==========
+-- -------------------------
+-- Config load/save
+-- -------------------------
+local config = DEFAULT_CONFIG
 do
-    local scriptsPage = pages["scripts"]
-    if scriptsPage then
-        local box = new("TextBox", {
-            Name = "ScriptBox",
-            Size = UDim2.new(1, -60, 0, 140),
-            Position = UDim2.new(0, 20, 0, 70),
-            BackgroundColor3 = Color3.fromRGB(12,12,12),
-            TextColor3 = THEME.Text,
-            Text = "-- Viết script của bạn ở đây\nprint('Hello Lirabay')",
-            Font = Enum.Font.Code,
-            TextSize = 14,
-            ClearTextOnFocus = false,
-            MultiLine = true,
-            Parent = scriptsPage
-        })
-        new("UICorner", { CornerRadius = UDim.new(0,8), Parent = box })
+    local raw = safeReadFile(CONFIG_FILE)
+    if raw then
+        local ok, parsed = pcall(function() return HttpService:JSONDecode(raw) end)
+        if ok and type(parsed) == "table" then
+            for k,v in pairs(parsed) do config[k] = v end
+        end
+    end
+end
 
-        local runBtn = new("TextButton", {
-            Name = "RunBtn",
-            Size = UDim2.new(0, 120, 0, 34),
-            Position = UDim2.new(1, -140, 1, -54),
-            AnchorPoint = Vector2.new(0,0),
-            BackgroundColor3 = THEME.Accent,
-            Text = "Run Script",
-            TextColor3 = Color3.fromRGB(0,0,0),
-            Font = Enum.Font.GothamBold,
-            TextSize = 14,
-            Parent = scriptsPage
-        })
-        new("UICorner", { CornerRadius = UDim.new(0,8), Parent = runBtn })
+local function saveConfig()
+    local ok, encoded = pcall(function() return HttpService:JSONEncode(config) end)
+    if ok then
+        safeWriteFile(CONFIG_FILE, encoded)
+    end
+end
 
-        runBtn.Activated:Connect(function()
-            local code = box.Text
-            -- try to run code safely
-            local ok, f = pcall(function() return loadstring(code) end)
-            if ok and type(f) == "function" then
-                pcall(f)
+-- -------------------------
+-- Thay đổi theme
+-- -------------------------
+local THEMES = {
+    dark = {
+        main = Color3.fromRGB(32,34,37),
+        sidebar = Color3.fromRGB(26,28,30),
+        accent = Color3.fromRGB(0, 170, 255),
+        text = Color3.fromRGB(235,235,235),
+        subtext = Color3.fromRGB(170,170,170),
+    },
+    light = {
+        main = Color3.fromRGB(245,245,245),
+        sidebar = Color3.fromRGB(230,230,230),
+        accent = Color3.fromRGB(10,120,200),
+        text = Color3.fromRGB(30,30,30),
+        subtext = Color3.fromRGB(90,90,90),
+    }
+}
+
+local function getTheme()
+    return THEMES[config.theme] or THEMES.dark
+end
+
+-- -------------------------
+-- Tạo UI
+-- -------------------------
+-- Clear trước nếu có GUI cũ
+for _, g in ipairs(PlayerGui:GetChildren()) do
+    if g.Name == "LiraBayUI" then
+        g:Destroy()
+    end
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "LiraBayUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = PlayerGui
+
+-- Main frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 760, 0, 460)
+MainFrame.Position = UDim2.new(0.5, -380, 0.5, -230)
+MainFrame.BackgroundColor3 = getTheme().main
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Parent = ScreenGui
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+local UICornerMain = Instance.new("UICorner", MainFrame)
+UICornerMain.CornerRadius = UDim.new(0, 12)
+local UIStrokeMain = Instance.new("UIStroke", MainFrame)
+UIStrokeMain.Transparency = 0.85
+UIStrokeMain.Thickness = 1
+
+-- Shadow-ish (simple)
+local Shadow = Instance.new("Frame", MainFrame)
+Shadow.Name = "Shadow"
+Shadow.Size = UDim2.new(1, 8, 1, 8)
+Shadow.Position = UDim2.new(0, -4, 0, -4)
+Shadow.BackgroundColor3 = Color3.fromRGB(0,0,0)
+Shadow.ZIndex = MainFrame.ZIndex - 1
+Shadow.BackgroundTransparency = 0.9
+Shadow.Visible = false
+
+-- Sidebar
+local Sidebar = Instance.new("Frame")
+Sidebar.Name = "Sidebar"
+Sidebar.Size = UDim2.new(0, 180, 1, 0)
+Sidebar.BackgroundColor3 = getTheme().sidebar
+Sidebar.Parent = MainFrame
+local UICornerSide = Instance.new("UICorner", Sidebar)
+UICornerSide.CornerRadius = UDim.new(0, 12)
+
+-- Brand
+local Brand = Instance.new("TextLabel")
+Brand.Name = "Brand"
+Brand.Text = "LiraBay"
+Brand.Font = Enum.Font.GothamBold
+Brand.TextSize = 20
+Brand.TextColor3 = getTheme().accent
+Brand.BackgroundTransparency = 1
+Brand.Size = UDim2.new(1, -20, 0, 60)
+Brand.Position = UDim2.new(0, 10, 0, 10)
+Brand.TextXAlignment = Enum.TextXAlignment.Left
+Brand.Parent = Sidebar
+
+-- Tabs area
+local TabsFrame = Instance.new("Frame", Sidebar)
+TabsFrame.Name = "TabsFrame"
+TabsFrame.Size = UDim2.new(1, -20, 0, 240)
+TabsFrame.Position = UDim2.new(0, 10, 0, 70)
+TabsFrame.BackgroundTransparency = 1
+
+local TabNames = {"Home","Scripts","Settings"}
+local TabButtons = {}
+for i, name in ipairs(TabNames) do
+    local btn = Instance.new("TextButton")
+    btn.Name = name .. "Btn"
+    btn.Text = name
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 15
+    btn.Size = UDim2.new(1, 0, 0, 46)
+    btn.Position = UDim2.new(0, 0, 0, (i-1) * 52)
+    btn.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    btn.BackgroundTransparency = 0.8
+    btn.TextColor3 = getTheme().text
+    btn.Parent = TabsFrame
+    local corner = Instance.new("UICorner", btn)
+    corner.CornerRadius = UDim.new(0, 8)
+    TabButtons[name] = btn
+end
+
+-- Footer in sidebar
+local Footer = Instance.new("TextLabel")
+Footer.Name = "Footer"
+Footer.Text = "Lirabay UI • Full"
+Footer.Font = Enum.Font.Gotham
+Footer.TextSize = 12
+Footer.TextColor3 = getTheme().subtext
+Footer.BackgroundTransparency = 1
+Footer.Size = UDim2.new(1, -20, 0, 24)
+Footer.Position = UDim2.new(0, 10, 1, -34)
+Footer.TextXAlignment = Enum.TextXAlignment.Left
+Footer.Parent = Sidebar
+
+-- Content area
+local Content = Instance.new("Frame")
+Content.Name = "Content"
+Content.Size = UDim2.new(1, -180, 1, -20)
+Content.Position = UDim2.new(0, 180, 0, 10)
+Content.BackgroundTransparency = 1
+Content.Parent = MainFrame
+
+-- Top bar
+local TopBar = Instance.new("Frame", Content)
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, -20, 0, 60)
+TopBar.Position = UDim2.new(0, 10, 0, 0)
+TopBar.BackgroundTransparency = 1
+
+local Title = Instance.new("TextLabel", TopBar)
+Title.Text = "Home"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 20
+Title.TextColor3 = getTheme().text
+Title.BackgroundTransparency = 1
+Title.Position = UDim2.new(0, 0, 0, 10)
+Title.Size = UDim2.new(0.6, 0, 0, 40)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Search box
+local SearchBox = Instance.new("TextBox", TopBar)
+SearchBox.PlaceholderText = "Tìm script..."
+SearchBox.Text = ""
+SearchBox.Font = Enum.Font.Gotham
+SearchBox.TextSize = 14
+SearchBox.Size = UDim2.new(0.35, 0, 0, 36)
+SearchBox.Position = UDim2.new(0.65, 0, 0, 10)
+SearchBox.BackgroundColor3 = Color3.fromRGB(255,255,255)
+SearchBox.BackgroundTransparency = 0.92
+SearchBox.TextColor3 = getTheme().text
+local cornerSearch = Instance.new("UICorner", SearchBox)
+cornerSearch.CornerRadius = UDim.new(0,8)
+
+-- Main scroll area for scripts / home content
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Name = "ScrollFrame"
+ScrollFrame.Size = UDim2.new(1, -40, 1, -90)
+ScrollFrame.Position = UDim2.new(0, 10, 0, 70)
+ScrollFrame.CanvasSize = UDim2.new(0,0,0,0)
+ScrollFrame.ScrollBarThickness = 6
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.Parent = Content
+
+local UIList = Instance.new("UIListLayout", ScrollFrame)
+UIList.Padding = UDim.new(0, 8)
+UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+UIList.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Notification holder
+local NotifyFrame = Instance.new("Frame", MainFrame)
+NotifyFrame.Name = "NotifyFrame"
+NotifyFrame.Size = UDim2.new(0, 300, 0, 200)
+NotifyFrame.Position = UDim2.new(1, -320, 0, 20)
+NotifyFrame.BackgroundTransparency = 1
+
+local function notify(text, duration)
+    duration = duration or 3
+    local n = Instance.new("TextLabel")
+    n.Text = text
+    n.Font = Enum.Font.Gotham
+    n.TextSize = 14
+    n.TextColor3 = getTheme().text
+    n.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    n.BackgroundTransparency = 0.7
+    n.Size = UDim2.new(1, 0, 0, 36)
+    n.AnchorPoint = Vector2.new(1,0)
+    n.Position = UDim2.new(1,0,0, (NotifyFrame:GetChildren() and #NotifyFrame:GetChildren()*42 or 0))
+    n.Parent = NotifyFrame
+    local c = Instance.new("UICorner", n); c.CornerRadius = UDim.new(0,8)
+    local tweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    n.Size = UDim2.new(1, 0, 0, 0)
+    wait(0.01)
+    TweenService:Create(n, tweenInfo, {Size = UDim2.new(1,0,0,36)}):Play()
+    spawn(function()
+        wait(duration)
+        TweenService:Create(n, tweenInfo, {Size = UDim2.new(1,0,0,0)}):Play()
+        wait(0.3)
+        n:Destroy()
+    end)
+end
+
+-- Update theme visuals
+local function applyTheme()
+    local t = getTheme()
+    MainFrame.BackgroundColor3 = t.main
+    Sidebar.BackgroundColor3 = t.sidebar
+    Brand.TextColor3 = t.accent
+    for _, btn in pairs(TabButtons) do
+        btn.TextColor3 = t.text
+        btn.BackgroundColor3 = t.sidebar
+    end
+    Title.TextColor3 = t.text
+    SearchBox.TextColor3 = t.text
+    Footer.TextColor3 = t.subtext
+    -- update existing script cards text color
+    for _, child in ipairs(ScrollFrame:GetChildren()) do
+        if child:IsA("Frame") and child.Name == "ScriptCard" then
+            local title = child:FindFirstChild("Title")
+            local desc = child:FindFirstChild("Desc")
+            if title then title.TextColor3 = t.text end
+            if desc then desc.TextColor3 = t.subtext end
+        end
+    end
+end
+
+applyTheme()
+
+-- -------------------------
+-- Script card creation
+-- -------------------------
+local function createScriptCard(scriptData)
+    local card = Instance.new("Frame")
+    card.Name = "ScriptCard"
+    card.Size = UDim2.new(0.95, 0, 0, 110)
+    card.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    card.BackgroundTransparency = 0.75
+    card.Parent = ScrollFrame
+    card.LayoutOrder = #ScrollFrame:GetChildren() + 1
+    local cardCorner = Instance.new("UICorner", card); cardCorner.CornerRadius = UDim.new(0,8)
+
+    local title = Instance.new("TextLabel", card)
+    title.Name = "Title"
+    title.Text = scriptData.title or "Untitled"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.TextColor3 = getTheme().text
+    title.BackgroundTransparency = 1
+    title.Position = UDim2.new(0.02, 0, 0.04, 0)
+    title.Size = UDim2.new(0.6, 0, 0, 28)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local desc = Instance.new("TextLabel", card)
+    desc.Name = "Desc"
+    desc.Text = scriptData.desc or ""
+    desc.Font = Enum.Font.Gotham
+    desc.TextSize = 13
+    desc.TextColor3 = getTheme().subtext
+    desc.BackgroundTransparency = 1
+    desc.Position = UDim2.new(0.02, 0, 0.28, 0)
+    desc.Size = UDim2.new(0.9, 0, 0, 40)
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.TextWrapped = true
+
+    -- Buttons: Execute, Copy, Open
+    local btnExecute = Instance.new("TextButton", card)
+    btnExecute.Text = "Execute"
+    btnExecute.Font = Enum.Font.Gotham
+    btnExecute.TextSize = 14
+    btnExecute.Size = UDim2.new(0, 96, 0, 32)
+    btnExecute.Position = UDim2.new(1, -104, 0, 12)
+    btnExecute.AnchorPoint = Vector2.new(1, 0)
+    btnExecute.BackgroundColor3 = getTheme().accent
+    btnExecute.TextColor3 = Color3.fromRGB(255,255,255)
+    local exCorner = Instance.new("UICorner", btnExecute); exCorner.CornerRadius = UDim.new(0,6)
+
+    local btnCopy = Instance.new("TextButton", card)
+    btnCopy.Text = "Copy"
+    btnCopy.Font = Enum.Font.Gotham
+    btnCopy.TextSize = 14
+    btnCopy.Size = UDim2.new(0, 60, 0, 28)
+    btnCopy.Position = UDim2.new(1, -104, 0, 52)
+    btnCopy.AnchorPoint = Vector2.new(1, 0)
+    btnCopy.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    btnCopy.TextColor3 = Color3.fromRGB(255,255,255)
+    local cpCorner = Instance.new("UICorner", btnCopy); cpCorner.CornerRadius = UDim.new(0,6)
+
+    local btnOpen = Instance.new("TextButton", card)
+    btnOpen.Text = "Open Raw"
+    btnOpen.Font = Enum.Font.Gotham
+    btnOpen.TextSize = 12
+    btnOpen.Size = UDim2.new(0, 82, 0, 28)
+    btnOpen.Position = UDim2.new(1, -14, 0, 52)
+    btnOpen.AnchorPoint = Vector2.new(1, 0)
+    btnOpen.BackgroundColor3 = Color3.fromRGB(90,90,90)
+    btnOpen.TextColor3 = Color3.fromRGB(255,255,255)
+    local opCorner = Instance.new("UICorner", btnOpen); opCorner.CornerRadius = UDim.new(0,6)
+
+    -- Tag display (optional)
+    if scriptData.tags and #scriptData.tags > 0 then
+        local tag = Instance.new("TextLabel", card)
+        tag.Text = table.concat(scriptData.tags, ", ")
+        tag.Font = Enum.Font.Gotham
+        tag.TextSize = 12
+        tag.TextColor3 = getTheme().subtext
+        tag.BackgroundTransparency = 1
+        tag.Position = UDim2.new(0.02, 0, 0.82, 0)
+        tag.Size = UDim2.new(0.6, 0, 0, 18)
+        tag.TextXAlignment = Enum.TextXAlignment.Left
+    end
+
+    -- Hook actions
+    btnExecute.MouseButton1Click:Connect(function()
+        notify("Đang tải và chạy script: " .. (scriptData.title or "Untitled"), 2)
+        spawn(function()
+            local content, err = safeHttpGet(scriptData.url)
+            if not content then
+                notify("Lỗi tải: " .. tostring(err), 4)
+                return
+            end
+            local ok, res = pcall(function()
+                -- prefer loadstring; some executors use load
+                local f = loadstring or load
+                local func = f(content)
+                if type(func) == "function" then
+                    return pcall(func)
+                end
+            end)
+            if ok then
+                notify("Chạy xong: " .. (scriptData.title or "Untitled"), 3)
             else
-                -- show small error (temporary)
-                local err = Instance.new("TextLabel")
-                err.Size = UDim2.new(0, 260, 0, 40)
-                err.Position = UDim2.new(0.5, -130, 1, -100)
-                err.BackgroundColor3 = Color3.fromRGB(30,30,30)
-                err.TextColor3 = Color3.fromRGB(255,150,150)
-                err.Text = "Lỗi: không thể load script"
-                err.Font = Enum.Font.GothamBold
-                err.TextSize = 14
-                err.Parent = scriptsPage
-                new("UICorner", { CornerRadius = UDim.new(0,8), Parent = err })
-                task.delay(2, function() pcall(function() err:Destroy() end) end)
+                notify("Lỗi chạy script.", 4)
             end
         end)
+    end)
+
+    btnCopy.MouseButton1Click:Connect(function()
+        local content, err = safeHttpGet(scriptData.url)
+        if not content then
+            notify("Không tải được để copy: " .. tostring(err), 3)
+            return
+        end
+        safeSetClipboard(content)
+        notify("Đã copy code vào clipboard.", 2)
+    end)
+
+    btnOpen.MouseButton1Click:Connect(function()
+        -- Mở link raw trong trình duyệt: chỉ khi executor hỗ trợ
+        if syn and syn.request then
+            pcall(function() syn.request({Url = scriptData.url, Method = "GET"}) end)
+        end
+        -- Nếu muốn: show pastebin modal hoặc text window
+        local modal = Instance.new("Frame")
+        modal.Size = UDim2.new(0, 560, 0, 360)
+        modal.Position = UDim2.new(0.5, -280, 0.5, -180)
+        modal.BackgroundColor3 = getTheme().main
+        modal.Parent = ScreenGui
+        local c = Instance.new("UICorner", modal); c.CornerRadius = UDim.new(0,10)
+        local close = Instance.new("TextButton", modal)
+        close.Text = "Close"; close.Font = Enum.Font.Gotham; close.TextSize = 14
+        close.Position = UDim2.new(1, -80, 0, 8); close.Size = UDim2.new(0, 72, 0, 28)
+        local tp = Instance.new("TextBox", modal)
+        tp.Text = "Đang tải..."
+        tp.MultiLine = true
+        tp.Position = UDim2.new(0, 8, 0, 48)
+        tp.Size = UDim2.new(1, -16, 1, -56)
+        tp.TextXAlignment = Enum.TextXAlignment.Left
+        tp.ClearTextOnFocus = false
+        tp.TextEditable = true
+        tp.Font = Enum.Font.Code
+        tp.TextSize = 14
+        tp.TextColor3 = getTheme().text
+        local ok, cont = pcall(function() return safeHttpGet(scriptData.url) end)
+        if ok and cont then
+            tp.Text = cont
+        else
+            tp.Text = "Không tải được raw: " .. tostring(cont)
+        end
+        close.MouseButton1Click:Connect(function() modal:Destroy() end)
+    end)
+
+    -- Mark autoload visually
+    if scriptData.autoload then
+        local aut = Instance.new("TextLabel", card)
+        aut.Text = "Auto"
+        aut.Font = Enum.Font.Gotham
+        aut.TextSize = 12
+        aut.Position = UDim2.new(0.02, 0, 0.72, 0)
+        aut.Size = UDim2.new(0.2, 0, 0, 18)
+        aut.BackgroundTransparency = 0.6
+        aut.BackgroundColor3 = Color3.fromRGB(20, 90, 20)
+        aut.TextColor3 = Color3.fromRGB(220, 255, 220)
+        local ac = Instance.new("UICorner", aut); ac.CornerRadius = UDim.new(0,6)
+    end
+
+    return card
+end
+
+-- Populate script list
+local function refreshScriptList(filter)
+    filter = filter or ""
+    -- clear
+    for _, child in ipairs(ScrollFrame:GetChildren()) do
+        if child:IsA("Frame") and child.Name == "ScriptCard" then child:Destroy() end
+    end
+    -- create home if tab = Home
+    if Title.Text == "Home" then
+        -- show a simple welcome card
+        local welcome = Instance.new("Frame", ScrollFrame)
+        welcome.Name = "ScriptCard"
+        welcome.Size = UDim2.new(0.95,0,0,120)
+        welcome.BackgroundColor3 = Color3.fromRGB(0,0,0)
+        welcome.BackgroundTransparency = 0.75
+        local c = Instance.new("UICorner", welcome); c.CornerRadius = UDim.new(0,8)
+        local t = Instance.new("TextLabel", welcome)
+        t.Text = "Xin chào, chào mừng đến với Lirabay UI!"
+        t.Font = Enum.Font.GothamBold; t.TextSize = 18
+        t.TextColor3 = getTheme().text; t.BackgroundTransparency = 1
+        t.Position = UDim2.new(0.02,0,0.06,0); t.Size = UDim2.new(0.9,0,0,32); t.TextXAlignment = Enum.TextXAlignment.Left
+        local body = Instance.new("TextLabel", welcome)
+        body.Text = "Sử dụng tab Scripts để xem các script có sẵn. Bạn có thể thêm link raw vào table SCRIPTS trong code."
+        body.Font = Enum.Font.Gotham; body.TextSize = 13
+        body.TextColor3 = getTheme().subtext; body.BackgroundTransparency = 1
+        body.Position = UDim2.new(0.02,0,0.3,0); body.Size = UDim2.new(0.95,0,0,64); body.TextWrapped = true
+    else
+        -- list scripts
+        for _, s in ipairs(SCRIPTS) do
+            local ok = true
+            local low = (s.title .. " " .. (s.desc or "") .. table.concat(s.tags or {}, " ")):lower()
+            if filter ~= "" and not string.find(low, filter:lower()) then ok = false end
+            if ok then createScriptCard(s) end
+        end
+    end
+    ScrollFrame.CanvasSize = UDim2.new(0,0,0, UIList.AbsoluteContentSize.Y + 20)
+end
+
+-- initial
+refreshScriptList()
+
+-- -------------------------
+-- Tab logic
+-- -------------------------
+local currentTab = "Home"
+local function setTab(name)
+    currentTab = name
+    Title.Text = name
+    -- highlight active button
+    for k, btn in pairs(TabButtons) do
+        if k == name then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0}):Play()
+            btn.TextColor3 = getTheme().accent
+            btn.BackgroundColor3 = Color3.fromRGB(255,255,255)
+        else
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0.8}):Play()
+            btn.TextColor3 = getTheme().text
+            btn.BackgroundColor3 = getTheme().sidebar
+        end
+    end
+    refreshScriptList()
+end
+
+for name, btn in pairs(TabButtons) do
+    btn.MouseButton1Click:Connect(function() setTab(name) end)
+end
+
+-- -------------------------
+-- Search behavior
+-- -------------------------
+SearchBox.Focused:Connect(function() end)
+SearchBox.FocusLost:Connect(function(enter)
+    if enter then
+        refreshScriptList(SearchBox.Text)
+    end
+end)
+SearchBox.Changed:Connect(function(prop)
+    if prop == "Text" then
+        refreshScriptList(SearchBox.Text)
+    end
+end)
+
+-- -------------------------
+-- Settings tab elements
+-- -------------------------
+-- we'll build settings UI inside Content when Settings tab opened
+local function buildSettings()
+    -- clear area
+    for _, child in ipairs(ScrollFrame:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+
+    local settingsCard = Instance.new("Frame", ScrollFrame)
+    settingsCard.Name = "ScriptCard"
+    settingsCard.Size = UDim2.new(0.95,0,0,280)
+    settingsCard.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    settingsCard.BackgroundTransparency = 0.75
+    local c = Instance.new("UICorner", settingsCard); c.CornerRadius = UDim.new(0,8)
+
+    local ttl = Instance.new("TextLabel", settingsCard)
+    ttl.Text = "Settings"
+    ttl.Font = Enum.Font.GothamBold; ttl.TextSize = 16
+    ttl.TextColor3 = getTheme().text; ttl.BackgroundTransparency = 1
+    ttl.Position = UDim2.new(0.02,0,0.02,0); ttl.Size = UDim2.new(0.6,0,0,26); ttl.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- Theme Row
+    local themeLabel = Instance.new("TextLabel", settingsCard)
+    themeLabel.Text = "Theme:"
+    themeLabel.Font = Enum.Font.Gotham; themeLabel.TextSize = 14
+    themeLabel.TextColor3 = getTheme().subtext; themeLabel.BackgroundTransparency = 1
+    themeLabel.Position = UDim2.new(0.02,0,0.16,0); themeLabel.Size = UDim2.new(0.25,0,0,22)
+
+    local themeBtn = Instance.new("TextButton", settingsCard)
+    themeBtn.Text = config.theme == "dark" and "Dark" or "Light"
+    themeBtn.Font = Enum.Font.Gotham; themeBtn.TextSize = 14
+    themeBtn.Size = UDim2.new(0, 120, 0, 28)
+    themeBtn.Position = UDim2.new(0.3,0,0.16,0)
+    local tc = Instance.new("UICorner", themeBtn); tc.CornerRadius = UDim.new(0,6)
+
+    themeBtn.MouseButton1Click:Connect(function()
+        config.theme = (config.theme == "dark" and "light" or "dark")
+        themeBtn.Text = config.theme == "dark" and "Dark" or "Light"
+        applyTheme()
+        saveConfig()
+    end)
+
+    -- Toggle key
+    local keyLabel = Instance.new("TextLabel", settingsCard)
+    keyLabel.Text = "Toggle Key:"
+    keyLabel.Font = Enum.Font.Gotham; keyLabel.TextSize = 14
+    keyLabel.TextColor3 = getTheme().subtext; keyLabel.BackgroundTransparency = 1
+    keyLabel.Position = UDim2.new(0.02,0,0.33,0); keyLabel.Size = UDim2.new(0.4,0,0,22)
+
+    local keyBox = Instance.new("TextBox", settingsCard)
+    keyBox.PlaceholderText = config.toggleKey
+    keyBox.Text = config.toggleKey
+    keyBox.Font = Enum.Font.Gotham; keyBox.TextSize = 14
+    keyBox.Size = UDim2.new(0, 160, 0, 28)
+    keyBox.Position = UDim2.new(0.3,0,0.33,0)
+    local kcorner = Instance.new("UICorner", keyBox); kcorner.CornerRadius = UDim.new(0,6)
+
+    local kSave = Instance.new("TextButton", settingsCard)
+    kSave.Text = "Save Key"; kSave.Font = Enum.Font.Gotham; kSave.TextSize = 12
+    kSave.Size = UDim2.new(0, 86, 0, 28); kSave.Position = UDim2.new(0.64,0,0.33,0)
+    local ksc = Instance.new("UICorner", kSave); ksc.CornerRadius = UDim.new(0,6)
+    kSave.MouseButton1Click:Connect(function()
+        if keyBox.Text and #keyBox.Text > 0 then
+            config.toggleKey = keyBox.Text
+            saveConfig()
+            notify("Lưu toggle key: " .. config.toggleKey, 2)
+        end
+    end)
+
+    -- Autoload toggle
+    local autoLabel = Instance.new("TextLabel", settingsCard)
+    autoLabel.Text = "Auto-execute marked scripts on open:"
+    autoLabel.Font = Enum.Font.Gotham; autoLabel.TextSize = 14
+    autoLabel.TextColor3 = getTheme().subtext; autoLabel.BackgroundTransparency = 1
+    autoLabel.Position = UDim2.new(0.02,0,0.51,0); autoLabel.Size = UDim2.new(0.95,0,0,22)
+
+    local autoBtn = Instance.new("TextButton", settingsCard)
+    autoBtn.Text = config.autoload and "Enabled" or "Disabled"
+    autoBtn.Font = Enum.Font.Gotham; autoBtn.TextSize = 14
+    autoBtn.Size = UDim2.new(0, 120, 0, 28)
+    autoBtn.Position = UDim2.new(0.02,0,0.58,0)
+    local ac = Instance.new("UICorner", autoBtn); ac.CornerRadius = UDim.new(0,6)
+    autoBtn.MouseButton1Click:Connect(function()
+        config.autoload = not config.autoload
+        autoBtn.Text = config.autoload and "Enabled" or "Disabled"
+        saveConfig()
+        notify("Auto-execute set to " .. tostring(config.autoload), 2)
+    end)
+
+    -- Save button
+    local saveAll = Instance.new("TextButton", settingsCard)
+    saveAll.Text = "Save config"
+    saveAll.Font = Enum.Font.Gotham; saveAll.TextSize = 14
+    saveAll.Size = UDim2.new(0, 120, 0, 32)
+    saveAll.Position = UDim2.new(0.02,0,0.78,0)
+    local sc2 = Instance.new("UICorner", saveAll); sc2.CornerRadius = UDim.new(0,6)
+    saveAll.MouseButton1Click:Connect(function()
+        saveConfig()
+        notify("Đã lưu cấu hình.", 2)
+    end)
+
+    ScrollFrame.CanvasSize = UDim2.new(0,0,0, UIList.AbsoluteContentSize.Y + 20)
+end
+
+-- call when settings tab opened
+TabButtons.Settings.MouseButton1Click:Connect(function()
+    setTab("Settings")
+    buildSettings()
+end)
+
+-- if user manually set other tabs
+TabButtons.Home.MouseButton1Click:Connect(function()
+    setTab("Home")
+end)
+TabButtons.Scripts.MouseButton1Click:Connect(function()
+    setTab("Scripts")
+end)
+
+-- -------------------------
+-- Toggle UI keybind
+-- -------------------------
+local function toggleWindow()
+    config.windowOpen = not config.windowOpen
+    MainFrame.Visible = config.windowOpen
+    saveConfig()
+end
+
+-- detect key presses; key is a string like "RightShift" or "F1"
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        local keyName = input.KeyCode.Name
+        if keyName == config.toggleKey then
+            toggleWindow()
+        end
+    end
+end)
+
+-- -------------------------
+-- Auto-execute marked scripts on load if enabled
+-- -------------------------
+if config.autoload then
+    for _, s in ipairs(SCRIPTS) do
+        if s.autoload then
+            spawn(function()
+                local content = safeHttpGet(s.url)
+                if content then
+                    pcall(function()
+                        local f = loadstring or load
+                        local func = f(content)
+                        if type(func) == "function" then pcall(func) end
+                    end)
+                    notify("Auto-executed: " .. (s.title or "Untitled"), 2)
+                end
+            end)
+        end
     end
 end
 
--- ========== Finishing touches ==========
--- Slight entrance animation for whole UI
-root.Position = UDim2.new(0.5, -UI_BASE_WIDTH/2, 0.35, -UI_BASE_HEIGHT/2)
-root.BackgroundTransparency = 1
-tween(root, { BackgroundTransparency = 0 }, TweenInfo.new(0.35))
-tween(root, { Position = UDim2.new(0.5, -UI_BASE_WIDTH/2, 0.5, -UI_BASE_HEIGHT/2) }, TweenInfo.new(0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
+-- -------------------------
+-- Misc: allow dragging main by top area (MainFrame.Draggable used)
+-- -------------------------
+MainFrame.Visible = config.windowOpen
 
-print("[Lirabay UI] Loaded — Accent: neon yellow. Replace RAW_URL with your raw GitHub link for Reload.")
+-- -------------------------
+-- Final touches
+-- -------------------------
+applyTheme()
+notify("Lirabay UI loaded", 2)
