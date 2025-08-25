@@ -1,456 +1,306 @@
--- Test7 Pro Executor (Full feature)
--- Copy -> Paste vào executor (Delta...) -> Execute
+-- Lirabay-like UI (Wind-style, tab nhỏ + intro)
+-- Dán script này vào một LocalScript trong StarterGui (với một ScreenGui parent)
+-- Tùy chỉnh các biến bên dưới để đổi màu, tên và kích thước.
 
--- ====== Helpers for compatibility with different executors ======
-local has_writefile = type(writefile) == "function"
-local has_readfile = type(readfile) == "function"
-local has_isfile = type(isfile) == "function"
-local has_makefolder = type(makefolder) == "function"
-local http_get = (function()
-    if type(game.HttpGet) == "function" then return function(url) return game:HttpGet(url) end end
-    if type(game.HttpGetAsync) == "function" then return function(url) return game:HttpGetAsync(url) end end
-    if type(HttpGet) == "function" then return function(url) return HttpGet(url) end end
-    if type(syn) == "table" and syn.request then return function(url)
-        local r = syn.request({Url = url, Method = "GET"})
-        return r.Body
-    end end
-    return nil
-end)()
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local player = Players.LocalPlayer
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "LirabayCustomUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
-local function try_write(path, content)
-    if has_writefile then
-        pcall(function() writefile(path, content) end)
-        return true
+-- ========== Config ==========
+local THEME = {
+    Primary = Color3.fromRGB(25, 27, 30),
+    Accent = Color3.fromRGB(50, 153, 255),
+    Secondary = Color3.fromRGB(36, 38, 41),
+    Text = Color3.fromRGB(240,240,240)
+}
+local UI_SCALE = 0.85 -- 1 = normal, <1 nhỏ hơn (dùng cho mobile)
+local TAB_WIDTH = UDim.new(0, 64 * UI_SCALE) -- width của sidebar tab (nhỏ)
+local TAB_ICON_SIZE = UDim2.new(0, 28 * UI_SCALE, 0, 28 * UI_SCALE)
+local CONTENT_PADDING = 12 * UI_SCALE
+local INTRO_ENABLED = true
+local INTRO_TIME = 0.7
+local TWEEN_TIME = 0.25
+local TABS = {
+    { id = "home", label = "Home", icon = "🏠" },
+    { id = "scripts", label = "Scripts", icon = "📜" },
+    { id = "settings", label = "Cài đặt", icon = "⚙️" },
+}
+
+-- ========== Helpers ==========
+local function applyStroke(inst, thickness)
+    local s = Instance.new("UIStroke")
+    s.Thickness = thickness or 1
+    s.Transparency = 0.8
+    s.Parent = inst
+    return s
+end
+
+local function makeText(label, size, bold)
+    local t = Instance.new("TextLabel")
+    t.Text = label
+    t.Font = Enum.Font.Gotham
+    t.TextSize = size
+    t.TextColor3 = THEME.Text
+    t.BackgroundTransparency = 1
+    t.RichText = true
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.TextYAlignment = Enum.TextYAlignment.Center
+    t.RichText = true
+    if bold then t.Font = Enum.Font.GothamBold end
+    return t
+end
+
+-- ========== Build UI ==========
+local root = Instance.new("Frame")
+root.Name = "Root"
+root.Size = UDim2.new(0.9, 0, 0.8, 0)
+root.Position = UDim2.new(0.05, 0, 0.1, 0)
+root.AnchorPoint = Vector2.new(0,0)
+root.BackgroundColor3 = THEME.Primary
+root.BorderSizePixel = 0
+root.Parent = screenGui
+
+-- Rounded corners
+local cor = Instance.new("UICorner", root)
+cor.CornerRadius = UDim.new(0, 12 * UI_SCALE)
+
+-- Left sidebar (tabs)
+local sidebar = Instance.new("Frame")
+sidebar.Name = "Sidebar"
+sidebar.Size = UDim2.new(0, TAB_WIDTH.Offset, 1, 0)
+sidebar.Position = UDim2.new(0, 0, 0, 0)
+sidebar.BackgroundColor3 = THEME.Secondary
+sidebar.BorderSizePixel = 0
+sidebar.Parent = root
+Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 12 * UI_SCALE)
+
+-- Content area
+local content = Instance.new("Frame")
+content.Name = "Content"
+content.Size = UDim2.new(1, -TAB_WIDTH.Offset, 1, 0)
+content.Position = UDim2.new(0, TAB_WIDTH.Offset, 0, 0)
+content.BackgroundTransparency = 1
+content.Parent = root
+
+-- Content inner panel
+local contentPanel = Instance.new("Frame")
+contentPanel.Name = "ContentPanel"
+contentPanel.Size = UDim2.new(1, - (CONTENT_PADDING*2), 1, - (CONTENT_PADDING*2))
+contentPanel.Position = UDim2.new(0, CONTENT_PADDING, 0, CONTENT_PADDING)
+contentPanel.BackgroundColor3 = Color3.fromRGB(16,16,16)
+contentPanel.BorderSizePixel = 0
+contentPanel.Parent = content
+Instance.new("UICorner", contentPanel).CornerRadius = UDim.new(0, 10 * UI_SCALE)
+
+-- Title
+local title = makeText("Lirabay UI", 20 * UI_SCALE, true)
+title.Size = UDim2.new(1, -10, 0, 36 * UI_SCALE)
+title.Position = UDim2.new(0, 12 * UI_SCALE, 0, 8 * UI_SCALE)
+title.Parent = contentPanel
+
+-- Container for pages
+local pages = Instance.new("Folder")
+pages.Name = "Pages"
+pages.Parent = contentPanel
+
+-- Create a simple page factory
+local function createPage(id, label)
+    local page = Instance.new("Frame")
+    page.Name = id .. "_page"
+    page.Size = UDim2.new(1, 0, 1, -48 * UI_SCALE)
+    page.Position = UDim2.new(0, 0, 0, 48 * UI_SCALE)
+    page.BackgroundTransparency = 1
+    page.Parent = pages
+
+    local sample = Instance.new("TextLabel")
+    sample.Size = UDim2.new(1, -24 * UI_SCALE, 0, 30 * UI_SCALE)
+    sample.Position = UDim2.new(0, 12 * UI_SCALE, 0, 20 * UI_SCALE)
+    sample.BackgroundTransparency = 1
+    sample.Text = ("Đây là trang %s"):format(label)
+    sample.Font = Enum.Font.Gotham
+    sample.TextSize = 16 * UI_SCALE
+    sample.TextColor3 = THEME.Text
+    sample.Parent = page
+
+    return page
+end
+
+-- Build tabs and pages
+local tabButtons = {}
+local selectedTab = nil
+local function selectTab(tabBtn, page)
+    if selectedTab == tabBtn then return end
+    -- deselect previous
+    if selectedTab then
+        selectedTab.Frame.BackgroundTransparency = 0
+        selectedTab.Label.TextColor3 = THEME.Text
+        TweenService:Create(selectedTab.Frame, TweenInfo.new(TWEEN_TIME), {BackgroundColor3 = THEME.Secondary}):Play()
     end
-    return false
-end
-
-local function try_read(path)
-    if has_readfile and has_isfile and isfile(path) then
-        local ok, res = pcall(function() return readfile(path) end)
-        if ok then return res end
+    -- select new
+    selectedTab = tabBtn
+    TweenService:Create(tabBtn.Frame, TweenInfo.new(TWEEN_TIME), {BackgroundColor3 = THEME.Accent}):Play()
+    tabBtn.Label.TextColor3 = Color3.new(1,1,1)
+    -- animate pages
+    for _, p in ipairs(pages:GetChildren()) do
+        if p == page then
+            p.Visible = true
+            p.Position = UDim2.new(1, 0, p.Position.Y.Scale, p.Position.Y.Offset)
+            TweenService:Create(p, TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 0, p.Position.Y.Scale, p.Position.Y.Offset)}):Play()
+        else
+            TweenService:Create(p, TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Quad), {Position = UDim2.new(-1, 0, p.Position.Y.Scale, p.Position.Y.Offset)}):Play()
+            -- hide after tween
+            spawn(function()
+                wait(TWEEN_TIME)
+                p.Visible = false
+            end)
+        end
     end
-    return nil
 end
 
--- folder for saved scripts
-local folder = "Test7Scripts"
-if has_makefolder then
-    pcall(function() makefolder(folder) end)
-end
+-- Create UI tab buttons
+local padding = Instance.new("UIListLayout", sidebar)
+padding.Padding = UDim.new(0, 8 * UI_SCALE)
+padding.FillDirection = Enum.FillDirection.Vertical
+padding.SortOrder = Enum.SortOrder.LayoutOrder
+padding.HorizontalAlignment = Enum.HorizontalAlignment.Center
+padding.VerticalAlignment = Enum.VerticalAlignment.Top
 
--- ====== Build UI ======
-local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
+local topSpacing = Instance.new("Frame")
+topSpacing.Size = UDim2.new(1, 0, 0, 12 * UI_SCALE)
+topSpacing.BackgroundTransparency = 1
+topSpacing.Parent = sidebar
 
--- prevent duplicate
-if CoreGui:FindFirstChild("Test7ExecutorPro") then
-    CoreGui.Test7ExecutorPro:Destroy()
-end
+for i, tinfo in ipairs(TABS) do
+    local container = Instance.new("Frame")
+    container.Name = tinfo.id .. "_btn"
+    container.Size = UDim2.new(1, -12 * UI_SCALE, 0, 48 * UI_SCALE)
+    container.BackgroundColor3 = THEME.Secondary
+    container.BorderSizePixel = 0
+    container.LayoutOrder = i
+    container.Parent = sidebar
+    Instance.new("UICorner", container).CornerRadius = UDim.new(0, 10 * UI_SCALE)
 
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "Test7ExecutorPro"
-ScreenGui.Parent = CoreGui
-ScreenGui.ResetOnSpawn = false
+    local icon = Instance.new("TextLabel")
+    icon.Size = TAB_ICON_SIZE
+    icon.Position = UDim2.new(0, 8 * UI_SCALE, 0.5, -TAB_ICON_SIZE.Y.Offset/2)
+    icon.BackgroundTransparency = 1
+    icon.Text = tinfo.icon or "?"
+    icon.Font = Enum.Font.Gotham
+    icon.TextSize = 18 * UI_SCALE
+    icon.TextColor3 = THEME.Text
+    icon.Parent = container
 
-local Frame = Instance.new("Frame")
-Frame.Parent = ScreenGui
-Frame.Size = UDim2.new(0, 560, 0, 380)
-Frame.Position = UDim2.new(0.25, 0, 0.2, 0)
-Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
-Frame.BorderSizePixel = 0
-Frame.Active = true
-Frame.Draggable = true
-Frame.ZIndex = 5
-Frame.ClipsDescendants = true
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, - (TAB_ICON_SIZE.X.Offset + 20 * UI_SCALE), 1, 0)
+    label.Position = UDim2.new(0, TAB_ICON_SIZE.X.Offset + 12 * UI_SCALE, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = tinfo.label
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 14 * UI_SCALE
+    label.TextColor3 = THEME.Text
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = container
 
--- Titlebar
-local TitleBar = Instance.new("Frame")
-TitleBar.Parent = Frame
-TitleBar.Size = UDim2.new(1,0,0,36)
-TitleBar.BackgroundColor3 = Color3.fromRGB(45,45,45)
-TitleBar.BorderSizePixel = 0
-TitleBar.ZIndex = 6
+    -- create page for this tab
+    local pg = createPage(tinfo.id, tinfo.label)
+    pg.Visible = false
 
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Parent = TitleBar
-TitleLabel.Size = UDim2.new(1, -80, 1, 0)
-TitleLabel.Position = UDim2.new(0, 8, 0, 0)
-TitleLabel.Text = "Test7 Pro Script Executor"
-TitleLabel.TextColor3 = Color3.fromRGB(240,240,240)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Font = Enum.Font.SourceSansBold
-TitleLabel.TextSize = 18
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.ZIndex = 7
-
-local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Parent = TitleBar
-MinimizeBtn.Size = UDim2.new(0,36,0,36)
-MinimizeBtn.Position = UDim2.new(1, -72, 0, 0)
-MinimizeBtn.Text = "_"
-MinimizeBtn.Font = Enum.Font.SourceSansBold
-MinimizeBtn.TextSize = 18
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(70,70,70)
-MinimizeBtn.TextColor3 = Color3.fromRGB(255,255,255)
-MinimizeBtn.ZIndex = 7
-
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Parent = TitleBar
-CloseBtn.Size = UDim2.new(0,36,0,36)
-CloseBtn.Position = UDim2.new(1, -36, 0, 0)
-CloseBtn.Text = "X"
-CloseBtn.Font = Enum.Font.SourceSansBold
-CloseBtn.TextSize = 18
-CloseBtn.BackgroundColor3 = Color3.fromRGB(100,40,40)
-CloseBtn.TextColor3 = Color3.fromRGB(255,255,255)
-CloseBtn.ZIndex = 7
-
--- Left sidebar (scripts list)
-local Side = Instance.new("Frame")
-Side.Parent = Frame
-Side.Size = UDim2.new(0,160,1,-36)
-Side.Position = UDim2.new(0,0,0,36)
-Side.BackgroundColor3 = Color3.fromRGB(35,35,35)
-Side.BorderSizePixel = 0
-Side.ZIndex = 5
-
-local SideTitle = Instance.new("TextLabel")
-SideTitle.Parent = Side
-SideTitle.Size = UDim2.new(1,0,0,28)
-SideTitle.Position = UDim2.new(0,0,0,6)
-SideTitle.BackgroundTransparency = 1
-SideTitle.Text = "Scripts"
-SideTitle.TextColor3 = Color3.fromRGB(220,220,220)
-SideTitle.Font = Enum.Font.SourceSansSemibold
-SideTitle.TextSize = 16
-SideTitle.ZIndex = 6
-
-local ScriptsList = Instance.new("ScrollingFrame")
-ScriptsList.Parent = Side
-ScriptsList.Size = UDim2.new(1,-12,1,-44)
-ScriptsList.Position = UDim2.new(0,6,0,34)
-ScriptsList.BackgroundTransparency = 1
-ScriptsList.CanvasSize = UDim2.new(0,0,0,0)
-ScriptsList.ScrollBarThickness = 6
-ScriptsList.ZIndex = 6
-
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = ScriptsList
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0,6)
-
--- Main editor area
-local EditorFrame = Instance.new("Frame")
-EditorFrame.Parent = Frame
-EditorFrame.Size = UDim2.new(1, -170, 1, -36)
-EditorFrame.Position = UDim2.new(0,170,0,36)
-EditorFrame.BackgroundColor3 = Color3.fromRGB(28,28,28)
-EditorFrame.BorderSizePixel = 0
-EditorFrame.ZIndex = 5
-
-local TextBox = Instance.new("TextBox")
-TextBox.Parent = EditorFrame
-TextBox.Size = UDim2.new(1,-20,0.72,-20)
-TextBox.Position = UDim2.new(0,10,0,10)
-TextBox.BackgroundColor3 = Color3.fromRGB(12,12,12)
-TextBox.TextColor3 = Color3.fromRGB(230,230,230)
-TextBox.Font = Enum.Font.Code
-TextBox.TextSize = 15
-TextBox.MultiLine = true
-TextBox.TextWrapped = true
-TextBox.ClearTextOnFocus = false
-TextBox.Text = "-- Paste script here or a raw URL to import then press Run Raw\n"
-
--- Buttons row
-local BtnY = 0.76
-local BtnW = 110
-local BtnH = 36
-local Gap = 10
-local startX = 10
-
-local ExecuteBtn = Instance.new("TextButton")
-ExecuteBtn.Parent = EditorFrame
-ExecuteBtn.Size = UDim2.new(0,BtnW,0,BtnH)
-ExecuteBtn.Position = UDim2.new(0, startX, BtnY, 0)
-ExecuteBtn.Text = "Execute"
-ExecuteBtn.Font = Enum.Font.SourceSansBold
-ExecuteBtn.TextSize = 16
-ExecuteBtn.BackgroundColor3 = Color3.fromRGB(60,140,60)
-ExecuteBtn.TextColor3 = Color3.fromRGB(255,255,255)
-ExecuteBtn.ZIndex = 7
-
-local ClearBtn = Instance.new("TextButton")
-ClearBtn.Parent = EditorFrame
-ClearBtn.Size = UDim2.new(0,BtnW,0,BtnH)
-ClearBtn.Position = UDim2.new(0, startX + (BtnW+Gap)*1, BtnY, 0)
-ClearBtn.Text = "Clear"
-ClearBtn.Font = Enum.Font.SourceSansBold
-ClearBtn.TextSize = 16
-ClearBtn.BackgroundColor3 = Color3.fromRGB(150,60,60)
-ClearBtn.TextColor3 = Color3.fromRGB(255,255,255)
-ClearBtn.ZIndex = 7
-
-local RunRawBtn = Instance.new("TextButton")
-RunRawBtn.Parent = EditorFrame
-RunRawBtn.Size = UDim2.new(0,BtnW,0,BtnH)
-RunRawBtn.Position = UDim2.new(0, startX + (BtnW+Gap)*2, BtnY, 0)
-RunRawBtn.Text = "Run Raw"
-RunRawBtn.Font = Enum.Font.SourceSansBold
-RunRawBtn.TextSize = 16
-RunRawBtn.BackgroundColor3 = Color3.fromRGB(70,70,140)
-RunRawBtn.TextColor3 = Color3.fromRGB(255,255,255)
-RunRawBtn.ZIndex = 7
-
-local SaveBtn = Instance.new("TextButton")
-SaveBtn.Parent = EditorFrame
-SaveBtn.Size = UDim2.new(0,BtnW,0,BtnH)
-SaveBtn.Position = UDim2.new(0, startX + (BtnW+Gap)*3, BtnY, 0)
-SaveBtn.Text = "Save"
-SaveBtn.Font = Enum.Font.SourceSansBold
-SaveBtn.TextSize = 16
-SaveBtn.BackgroundColor3 = Color3.fromRGB(110,110,60)
-SaveBtn.TextColor3 = Color3.fromRGB(255,255,255)
-SaveBtn.ZIndex = 7
-
-local LoadBtn = Instance.new("TextButton")
-LoadBtn.Parent = EditorFrame
-LoadBtn.Size = UDim2.new(0,BtnW,0,BtnH)
-LoadBtn.Position = UDim2.new(0, startX + (BtnW+Gap)*4, BtnY, 0)
-LoadBtn.Text = "Load"
-LoadBtn.Font = Enum.Font.SourceSansBold
-LoadBtn.TextSize = 16
-LoadBtn.BackgroundColor3 = Color3.fromRGB(70,70,70)
-LoadBtn.TextColor3 = Color3.fromRGB(255,255,255)
-LoadBtn.ZIndex = 7
-
--- Status bar
-local status = Instance.new("TextLabel")
-status.Parent = EditorFrame
-status.Size = UDim2.new(1,-20,0,20)
-status.Position = UDim2.new(0,10,1,-26)
-status.BackgroundTransparency = 1
-status.Text = "Ready"
-status.TextColor3 = Color3.fromRGB(180,180,180)
-status.Font = Enum.Font.SourceSans
-status.TextSize = 14
-status.TextXAlignment = Enum.TextXAlignment.Left
-status.ZIndex = 7
-
--- Utility: add script button to list
-local function addScriptItem(name, content)
+    -- make clickable
     local btn = Instance.new("TextButton")
-    btn.Parent = ScriptsList
-    btn.Size = UDim2.new(1,0,0,36)
-    btn.Text = name
-    btn.Font = Enum.Font.SourceSans
-    btn.TextSize = 14
-    btn.TextColor3 = Color3.fromRGB(240,240,240)
-    btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
-    btn.ZIndex = 6
-    btn.AutoButtonColor = true
+    btn.Text = ""
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundTransparency = 1
+    btn.Parent = container
 
-    btn.MouseButton1Click:Connect(function()
-        TextBox.Text = content
-        status.Text = "Loaded script: "..name
+    local tabBtn = { Frame = container, Icon = icon, Label = label, Button = btn, Page = pg }
+    table.insert(tabButtons, tabBtn)
+
+    btn.Activated:Connect(function()
+        selectTab(tabBtn, pg)
     end)
 end
 
--- Add sample scripts
-addScriptItem("Fly (sample)", [[
--- Simple Fly (sample) - may require exploit support
-local plr = game.Players.LocalPlayer
-local char = plr.Character or plr.CharacterAdded:Wait()
-local hrp = char:WaitForChild("HumanoidRootPart")
-local flying = true
-local speed = 50
-local bodyvel = Instance.new("BodyVelocity", hrp)
-bodyvel.MaxForce = Vector3.new(1e5,1e5,1e5)
-game:GetService("RunService").Heartbeat:Connect(function()
-    if flying then
-        local cam = workspace.CurrentCamera
-        local dir = (cam.CFrame.LookVector + Vector3.new(0,0,0)).Unit
-        bodyvel.Velocity = dir * speed
-    else
-        bodyvel.Velocity = Vector3.new(0,0,0)
-    end
-end)
-]])
-
-addScriptItem("ESP (sample)", [[
--- Basic ESP (client-side)
-for i,v in pairs(game.Players:GetPlayers()) do
-    if v ~= game.Players.LocalPlayer then
-        local bill = Instance.new("BillboardGui", v.Character and v.Character:FindFirstChild("Head") or nil)
-        if bill then
-            bill.Size = UDim2.new(0,100,0,30)
-            bill.AlwaysOnTop = true
-            local lbl = Instance.new("TextLabel", bill)
-            lbl.Size = UDim2.new(1,1,1,1)
-            lbl.BackgroundTransparency = 1
-            lbl.Text = v.Name
-            lbl.TextColor3 = Color3.new(1,0,0)
-        end
-    end
-end
-]])
-
-addScriptItem("AutoFarm (placeholder)", [[
--- AutoFarm placeholder
-print("AutoFarm: bạn cần chỉnh theo game cụ thể.")
-]])
-
--- adjust ScrollCanvas after adding
-ScriptsList.CanvasSize = UDim2.new(0,0,0, UIListLayout.AbsoluteContentSize + 10)
-UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    ScriptsList.CanvasSize = UDim2.new(0,0, UIListLayout.AbsoluteContentSize + 12, 0)
-end)
-
--- ====== Button functions ======
-local function setStatus(txt)
-    status.Text = txt
+-- Select first tab by default
+if #tabButtons > 0 then
+    selectTab(tabButtons[1], tabButtons[1].Page)
 end
 
-ExecuteBtn.MouseButton1Click:Connect(function()
-    local code = TextBox.Text or ""
-    setStatus("Executing...")
-    local ok, err = pcall(function()
-        local fn = loadstring and loadstring(code) or load and load(code)
-        if fn then
-            fn()
-        else
-            error("loadstring not available")
-        end
-    end)
-    if not ok then
-        setStatus("Error: " .. tostring(err))
-        warn("Execute error:", err)
+-- ========== Intro animation ==========
+if INTRO_ENABLED then
+    local overlay = Instance.new("Frame")
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.Position = UDim2.new(0, 0, 0, 0)
+    overlay.BackgroundColor3 = THEME.Primary
+    overlay.Parent = screenGui
+    overlay.ZIndex = 999
+    overlay.Name = "IntroOverlay"
+
+    local logo = Instance.new("TextLabel")
+    logo.Size = UDim2.new(0, 0, 0, 0)
+    logo.AnchorPoint = Vector2.new(0.5, 0.5)
+    logo.Position = UDim2.new(0.5, 0.45, 0, 0)
+    logo.BackgroundTransparency = 1
+    logo.Font = Enum.Font.GothamBlack
+    logo.Text = "LiraBay"
+    logo.TextSize = 28 * UI_SCALE
+    logo.TextColor3 = THEME.Accent
+    logo.Parent = overlay
+
+    -- animate: scale up + fade out overlay
+    logo.Size = UDim2.new(0, 0, 0, 0)
+    TweenService:Create(logo, TweenInfo.new(INTRO_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 220 * UI_SCALE, 0, 44 * UI_SCALE)}):Play()
+    wait(INTRO_TIME + 0.12)
+    TweenService:Create(overlay, TweenInfo.new(0.45, Enum.EasingStyle.Quart), {BackgroundTransparency = 1}):Play()
+    TweenService:Create(logo, TweenInfo.new(0.45), {TextTransparency = 1}):Play()
+    wait(0.45)
+    overlay:Destroy()
+end
+
+-- ========== Mobile responsiveness ==========
+-- Scale UI down if screen is small
+local function adjustScale()
+    local resX = workspace.CurrentCamera.ViewportSize.X
+    if resX < 1000 then
+        root.Size = UDim2.new(0.95, 0, 0.88, 0)
+        root.Position = UDim2.new(0.025, 0, 0.06, 0)
     else
-        setStatus("Execution finished.")
+        root.Size = UDim2.new(0.9, 0, 0.8, 0)
+        root.Position = UDim2.new(0.05, 0, 0.1, 0)
+    end
+end
+adjustScale()
+workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(adjustScale)
+
+-- Optional: make root draggable (for PC)
+local dragging = false
+local dragInput, dragStart, startPos
+root.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and not (game:GetService("UserInputService"):GetPlatform() == Enum.Platform.Android) then
+        dragging = true
+        dragStart = input.Position
+        startPos = root.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+root.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if input == dragInput and dragging and dragStart and startPos then
+        local delta = input.Position - dragStart
+        root.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
-ClearBtn.MouseButton1Click:Connect(function()
-    TextBox.Text = ""
-    setStatus("Cleared editor.")
-end)
-
-RunRawBtn.MouseButton1Click:Connect(function()
-    local url = TextBox.Text and TextBox.Text:match("%S+")
-    if not url or (not url:match("^https?://")) then
-        setStatus("Please paste a valid raw URL in the editor.")
-        return
-    end
-    if not http_get then
-        setStatus("HttpGet not available on this executor.")
-        return
-    end
-    setStatus("Fetching raw script...")
-    local ok, res = pcall(function() return http_get(url) end)
-    if not ok or not res then
-        setStatus("Failed to fetch raw script.")
-        return
-    end
-    setStatus("Running fetched script...")
-    local ok2, err2 = pcall(function()
-        local fn = loadstring and loadstring(res) or load and load(res)
-        if fn then fn() else error("loadstring missing") end
-    end)
-    if not ok2 then
-        setStatus("Runtime error: "..tostring(err2))
-        warn("RunRaw error:", err2)
-    else
-        setStatus("RunRaw finished.")
-    end
-end)
-
-SaveBtn.MouseButton1Click:Connect(function()
-    local content = TextBox.Text or ""
-    if content == "" then
-        setStatus("Editor empty, nothing to save.")
-        return
-    end
-    if not has_writefile then
-        setStatus("Save not supported by this executor.")
-        return
-    end
-    local filename = "script_"..tostring(os.time())..".txt"
-    local path = folder.."/"..filename
-    local ok, err = pcall(function() writefile(path, content) end)
-    if ok then
-        setStatus("Saved to "..path)
-        -- add to list
-        addScriptItem(filename, content)
-    else
-        setStatus("Save failed: "..tostring(err))
-    end
-end)
-
-LoadBtn.MouseButton1Click:Connect(function()
-    if not has_readfile or not has_isfile then
-        setStatus("Load not supported by this executor.")
-        return
-    end
-    -- try read most recent file
-    setStatus("Loading saved scripts from folder...")
-    local ok, files = pcall(function()
-        -- syn or exploit may not provide listfiles; fallback not available
-        if type(listfiles) == "function" then
-            return listfiles(folder)
-        else
-            error("listfiles not available")
-        end
-    end)
-    if not ok then
-        setStatus("Cannot list saved files on this executor.")
-        return
-    end
-    -- try show first file
-    if #files == 0 then
-        setStatus("No saved scripts found.")
-        return
-    end
-    local p = files[1]
-    local content = try_read(p)
-    if content then
-        TextBox.Text = content
-        setStatus("Loaded "..p)
-    else
-        setStatus("Failed to read "..tostring(p))
-    end
-end)
-
--- Titlebar buttons
-CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
-end)
-
-local minimized = false
-MinimizeBtn.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    if minimized then
-        -- hide editor area, leave title and side
-        EditorFrame.Visible = false
-        Frame.Size = UDim2.new(0, 300, 0, 80)
-        Frame.Position = UDim2.new(0.4,0,0.4,0)
-        setStatus("Minimized")
-    else
-        EditorFrame.Visible = true
-        Frame.Size = UDim2.new(0,560,0,380)
-        Frame.Position = UDim2.new(0.25, 0, 0.2, 0)
-        setStatus("Restored")
-    end
-end)
-
--- Toggle UI with RightShift
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.RightShift then
-        ScreenGui.Enabled = not ScreenGui.Enabled
-    end
-end)
-
--- Final status
-setStatus("Test7 Pro ready. RightShift toggles UI. Use Run Raw to load raw URLs.")
-
--- End of Test7 Pro
+-- ========== End of UI ==========
+print("Lirabay custom UI loaded.")
