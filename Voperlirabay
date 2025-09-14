@@ -1,136 +1,574 @@
---// Lirabay Custom UI Full by ChatGPT
---// Features: Tabs, Script Loader, Animation, Dark Theme
+-- Granny1 — ESP & Locator (Fluent UI if available, fallback UI otherwise)
+-- Robust: nil-checks before distance arithmetic, GUIs created once and toggled
 
-if game.CoreGui:FindFirstChild("LirabayUI") then
-    game.CoreGui.LirabayUI:Destroy()
-end
-
-local TweenService = game:GetService("TweenService")
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-local mouse = player:GetMouse()
-
--- Main GUI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "LirabayUI"
-ScreenGui.Parent = game.CoreGui
-
--- Main Frame
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 500, 0, 300)
-MainFrame.Position = UDim2.new(0.5, -250, 0.5, -150)
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
-
--- UI Corner
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
-
--- Sidebar
-local Sidebar = Instance.new("Frame")
-Sidebar.Size = UDim2.new(0, 120, 1, 0)
-Sidebar.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-Sidebar.Parent = MainFrame
-
-local UICornerSide = Instance.new("UICorner")
-UICornerSide.CornerRadius = UDim.new(0, 10)
-UICornerSide.Parent = Sidebar
-
--- Tabs Buttons
-local Tabs = {"Home", "Scripts", "Settings"}
-local Buttons = {}
-
-for i, name in ipairs(Tabs) do
-    local Btn = Instance.new("TextButton")
-    Btn.Size = UDim2.new(1, 0, 0, 40)
-    Btn.Position = UDim2.new(0, 0, 0, (i - 1) * 50 + 20)
-    Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Btn.Font = Enum.Font.GothamBold
-    Btn.Text = name
-    Btn.TextSize = 16
-    Btn.Parent = Sidebar
-    Buttons[name] = Btn
-end
-
--- Content Frames
-local ContentFrames = {}
-for _, name in ipairs(Tabs) do
-    local Frame = Instance.new("Frame")
-    Frame.Name = name.."Frame"
-    Frame.Size = UDim2.new(1, -130, 1, -20)
-    Frame.Position = UDim2.new(0, 130, 0, 10)
-    Frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    Frame.Visible = false
-    Frame.Parent = MainFrame
-    ContentFrames[name] = Frame
-end
-
-ContentFrames["Home"].Visible = true
-
--- Home Tab Content
-local HomeLabel = Instance.new("TextLabel")
-HomeLabel.Size = UDim2.new(1, 0, 1, 0)
-HomeLabel.Text = "Welcome to Lirabay UI\nCustom Roblox Hub"
-HomeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-HomeLabel.TextSize = 20
-HomeLabel.Font = Enum.Font.GothamBold
-HomeLabel.BackgroundTransparency = 1
-HomeLabel.Parent = ContentFrames["Home"]
-
--- Scripts Tab Content
-local ScriptsFrame = ContentFrames["Scripts"]
-local Scripts = {
-    {Name = "Infinite Yield", URL = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"},
-    {Name = "Dex Explorer", URL = "https://raw.githubusercontent.com/infyiff/backup/main/dex.lua"},
-    {Name = "Fly GUI", URL = "https://raw.githubusercontent.com/didix12/fly/main/fly.txt"},
-    {Name = "ESP Script", URL = "https://raw.githubusercontent.com/HonestlyDex/DexHub/main/ESP.lua"},
-    {Name = "Speed Script", URL = "https://raw.githubusercontent.com/Stefanuk12/ROBLOX/master/Speed.lua"}
+-- ===== CONFIG =====
+local KEY_LIST = {
+    "Master key",
+    "Playhouse key",
+    "Rusty padlock key",
+    "Weapon key",
+    "Car key",
+    "Safekey",
 }
+local KEY_COLORS = {
+    ["Master key"] = Color3.fromRGB(255,215,0),
+    ["Playhouse key"] = Color3.fromRGB(0,170,255),
+    ["Rusty padlock key"] = Color3.fromRGB(160,82,45),
+    ["Weapon key"] = Color3.fromRGB(220,20,60),
+    ["Car key"] = Color3.fromRGB(100,255,100),
+    ["Safekey"] = Color3.fromRGB(200,200,255),
+}
+local STUD_TO_METER = 0.28
 
-for i, scriptData in ipairs(Scripts) do
-    local Btn = Instance.new("TextButton")
-    Btn.Size = UDim2.new(0.9, 0, 0, 35)
-    Btn.Position = UDim2.new(0.05, 0, 0, (i - 1) * 45 + 10)
-    Btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Btn.Font = Enum.Font.Gotham
-    Btn.TextSize = 16
-    Btn.Text = scriptData.Name
-    Btn.Parent = ScriptsFrame
-    Btn.MouseButton1Click:Connect(function()
-        loadstring(game:HttpGet(scriptData.URL))()
-    end)
+-- ===== SERVICES =====
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local Workspace = workspace
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ===== UTIL =====
+local function safeHttpGet(url)
+    local ok, res = pcall(function() return game:HttpGet(url) end)
+    if ok then return res end
+    return nil
 end
 
--- Settings Tab Content
-local SettingsLabel = Instance.new("TextLabel")
-SettingsLabel.Size = UDim2.new(1, 0, 1, 0)
-SettingsLabel.Text = "Settings Coming Soon..."
-SettingsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-SettingsLabel.TextSize = 18
-SettingsLabel.Font = Enum.Font.Gotham
-SettingsLabel.BackgroundTransparency = 1
-SettingsLabel.Parent = ContentFrames["Settings"]
+local function getBasePart(inst)
+    if not inst then return nil end
+    if inst:IsA("BasePart") then return inst end
+    if inst:IsA("Model") then
+        if inst.PrimaryPart and inst.PrimaryPart:IsA("BasePart") then return inst.PrimaryPart end
+        for _,v in ipairs(inst:GetDescendants()) do
+            if v:IsA("BasePart") then return v end
+        end
+    end
+    return nil
+end
 
--- Tab Switch Function
-local function SwitchTab(name)
-    for tab, frame in pairs(ContentFrames) do
-        frame.Visible = (tab == name)
+local function getPlayerHRP(plr)
+    if not plr then return nil end
+    local ch = plr.Character
+    if ch and ch:FindFirstChild("HumanoidRootPart") then return ch.HumanoidRootPart end
+    return nil
+end
+
+local function safeDistanceTo(pos)
+    if not pos then return nil end
+    if not (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then return nil end
+    local hrp = LocalPlayer.Character.HumanoidRootPart
+    if not hrp then return nil end
+    local studs = (hrp.Position - pos).Magnitude
+    local meters = studs * STUD_TO_METER
+    return studs, string.format("%.1f m (%.0f studs)", meters, studs)
+end
+
+-- ===== GUI BACKEND (Fluent try / fallback) =====
+local Fluent = nil
+do
+    local candidates = {
+        "https://raw.githubusercontent.com/dawid-scripts/Fluent/main/source.lua",
+        "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/source.lua",
+        "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
+    }
+    for _, url in ipairs(candidates) do
+        local code = safeHttpGet(url)
+        if code then
+            local ok, lib = pcall(function() return loadstring(code)() end)
+            if ok and lib then Fluent = lib break end
+        end
     end
 end
 
-for name, Btn in pairs(Buttons) do
-    Btn.MouseButton1Click:Connect(function()
-        SwitchTab(name)
+local UI = {}
+if Fluent and type(Fluent.CreateWindow) == "function" then
+    local Window = Fluent:CreateWindow({
+        Title = "Granny1 | ESP & Locator",
+        SubTitle = "Fluent UI",
+        Size = UDim2.fromOffset(520,380),
+        Theme = "Dark",
+        Acrylic = true,
+    })
+    local Main = Window:AddTab({ Title = "Main", Icon = "target" })
+
+    function UI.AddToggle(name, default, cb)
+        Main:AddToggle({ Name = name, Default = default, Callback = cb })
+    end
+    function UI.AddDropdown(name, options, default, cb)
+        Main:AddDropdown({ Name = name, Options = options, CurrentOption = default, Callback = cb })
+    end
+    function UI.AddButton(name, cb)
+        Main:AddButton({ Name = name, Callback = cb })
+    end
+else
+    -- fallback UI (guaranteed)
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "Granny1_FallbackUI"
+    sg.ResetOnSpawn = false
+    sg.Parent = PlayerGui
+
+    local frame = Instance.new("Frame", sg)
+    frame.Size = UDim2.new(0, 440, 0, 360)
+    frame.Position = UDim2.new(0, 10, 0, 10)
+    frame.BackgroundTransparency = 0.25
+    frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    frame.BorderSizePixel = 0
+
+    local layout = Instance.new("UIListLayout", frame)
+    layout.Padding = UDim.new(0,8)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+    local function addToggleLabel(text, default, cb)
+        local cont = Instance.new("Frame", frame)
+        cont.Size = UDim2.new(1, -20, 0, 44)
+        cont.BackgroundTransparency = 1
+
+        local lbl = Instance.new("TextLabel", cont)
+        lbl.Position = UDim2.new(0, 8, 0, 6)
+        lbl.Size = UDim2.new(0.6, -8, 1, -12)
+        lbl.Text = text
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.SourceSans
+        lbl.TextSize = 18
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local btn = Instance.new("TextButton", cont)
+        btn.Position = UDim2.new(1, -90, 0, 6)
+        btn.Size = UDim2.new(0,80,0,32)
+        btn.Text = default and "ON" or "OFF"
+        btn.BackgroundColor3 = default and Color3.fromRGB(60,160,255) or Color3.fromRGB(60,60,60)
+        btn.Font = Enum.Font.SourceSansBold
+        btn.MouseButton1Click:Connect(function()
+            local new = not (btn.Text == "ON")
+            btn.Text = new and "ON" or "OFF"
+            btn.BackgroundColor3 = new and Color3.fromRGB(60,160,255) or Color3.fromRGB(60,60,60)
+            cb(new)
+        end)
+    end
+
+    local function addDropdownLabel(text, options, default, cb)
+        local cont = Instance.new("Frame", frame)
+        cont.Size = UDim2.new(1, -20, 0, 44)
+        cont.BackgroundTransparency = 1
+
+        local lbl = Instance.new("TextLabel", cont)
+        lbl.Position = UDim2.new(0, 8, 0, 6)
+        lbl.Size = UDim2.new(0.55, -8, 1, -12)
+        lbl.Text = text
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.SourceSans
+        lbl.TextSize = 18
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local btn = Instance.new("TextButton", cont)
+        btn.Position = UDim2.new(0.55, 0, 0, 6)
+        btn.Size = UDim2.new(0.45, -8, 1, -12)
+        btn.Text = default or options[1]
+        btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        local idx = 1
+        for i,opt in ipairs(options) do if opt == default then idx = i break end end
+        btn.MouseButton1Click:Connect(function()
+            idx = idx + 1
+            if idx > #options then idx = 1 end
+            btn.Text = options[idx]
+            cb(options[idx])
+        end)
+    end
+
+    local function addButtonLabel(text, cb)
+        local btn = Instance.new("TextButton", frame)
+        btn.Size = UDim2.new(1, -20, 0, 40)
+        btn.Text = text
+        btn.Font = Enum.Font.SourceSansBold
+        btn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+        btn.TextColor3 = Color3.fromRGB(255,255,255)
+        btn.MouseButton1Click:Connect(cb)
+    end
+
+    function UI.AddToggle(name, default, cb) addToggleLabel(name, default, cb) end
+    function UI.AddDropdown(name, options, default, cb) addDropdownLabel(name, options, default, cb) end
+    function UI.AddButton(name, cb) addButtonLabel(name, cb) end
+end
+
+-- ===== STORAGE for created guis =====
+local PlayerGUIs = {}  -- [player] = {gui,label}
+local KeyGUIs = {}     -- [inst] = {gui,label}
+local GrannyGUIs = {}  -- [model] = {gui,label}
+local SpiderGUIs = {}  -- [model] = {gui,label}
+local LocatorData = nil
+local locatorConn = nil
+
+-- ===== create billboard helper (parented to PlayerGui) =====
+local function createBillboardFor(inst, initialText, textColor)
+    local part = getBasePart(inst)
+    if not part then return nil end
+    local bg = Instance.new("BillboardGui")
+    bg.Name = "G1_ESP"
+    bg.Adornee = part
+    bg.AlwaysOnTop = true
+    bg.Size = UDim2.new(0, 200, 0, 44)
+    bg.StudsOffset = Vector3.new(0, 1.8, 0)
+    bg.Parent = PlayerGui
+
+    local lbl = Instance.new("TextLabel", bg)
+    lbl.Size = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 0.35
+    lbl.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    lbl.TextColor3 = textColor or Color3.fromRGB(255,255,255)
+    lbl.TextScaled = true
+    lbl.Font = Enum.Font.SourceSansBold
+    lbl.Text = initialText or tostring(inst.Name)
+    return {gui = bg, label = lbl}
+end
+
+-- ===== KEY MANAGEMENT =====
+local function addKeyInstance(inst)
+    if not inst or not inst.Parent then return end
+    if not table.find(KEY_LIST, inst.Name) then return end
+    if KeyGUIs[inst] then return end
+    local color = KEY_COLORS[inst.Name] or Color3.new(1,1,1)
+    local info = createBillboardFor(inst, inst.Name, color)
+    if info then
+        KeyGUIs[inst] = info
+        info.gui.Enabled = false
+    end
+end
+local function removeKeyInstance(inst)
+    local info = KeyGUIs[inst]
+    if info and info.gui then pcall(function() info.gui:Destroy() end) end
+    KeyGUIs[inst] = nil
+end
+
+local function setupPresetWatcher()
+    local preset = Workspace:FindFirstChild("Preset3")
+    if not preset then
+        Workspace.ChildAdded:Connect(function(c)
+            if c.Name == "Preset3" then
+                task.delay(0.1, function()
+                    for _,ch in ipairs(c:GetChildren()) do addKeyInstance(ch) end
+                    c.ChildAdded:Connect(addKeyInstance)
+                    c.ChildRemoved:Connect(removeKeyInstance)
+                end)
+            end
+        end)
+        return
+    end
+    for _,child in ipairs(preset:GetChildren()) do addKeyInstance(child) end
+    preset.ChildAdded:Connect(addKeyInstance)
+    preset.ChildRemoved:Connect(removeKeyInstance)
+end
+setupPresetWatcher()
+
+-- ===== GRANNY & SPIDER detect =====
+local function scanForGranniesAndSpiders()
+    for _,d in ipairs(Workspace:GetDescendants()) do
+        if d:IsA("Model") and d.Parent ~= Players then
+            local lower = d.Name:lower()
+            if lower:find("granny") and not GrannyGUIs[d] then
+                local info = createBillboardFor(d, "GRANNY", Color3.fromRGB(255,80,80))
+                if info then GrannyGUIs[d] = info; info.gui.Enabled = false end
+            end
+            if lower:find("spider") and not SpiderGUIs[d] then
+                local info = createBillboardFor(d, "SPIDER", Color3.fromRGB(0,200,200))
+                if info then SpiderGUIs[d] = info; info.gui.Enabled = false end
+            end
+        end
+    end
+end
+scanForGranniesAndSpiders()
+Workspace.DescendantAdded:Connect(function(d)
+    task.delay(0.05, function()
+        if d:IsA("Model") then
+            local n = d.Name:lower()
+            if n:find("granny") then scanForGranniesAndSpiders() end
+            if n:find("spider") then scanForGranniesAndSpiders() end
+        end
+    end)
+end)
+Workspace.DescendantRemoving:Connect(function(d)
+    if GrannyGUIs[d] then pcall(function() GrannyGUIs[d].gui:Destroy() end) GrannyGUIs[d] = nil end
+    if SpiderGUIs[d] then pcall(function() SpiderGUIs[d].gui:Destroy() end) SpiderGUIs[d] = nil end
+end)
+
+-- ===== PLAYER GUI helper =====
+local function ensurePlayerGui(plr)
+    if PlayerGUIs[plr] then return PlayerGUIs[plr] end
+    local hrp = getPlayerHRP(plr)
+    if not hrp then return nil end
+    local bg = Instance.new("BillboardGui")
+    bg.Name = "G1_PlayerESP_"..plr.Name
+    bg.Adornee = hrp
+    bg.AlwaysOnTop = true
+    bg.Size = UDim2.new(0, 200, 0, 44)
+    bg.StudsOffset = Vector3.new(0, 2.2, 0)
+    bg.Parent = PlayerGui
+    local lbl = Instance.new("TextLabel", bg)
+    lbl.Size = UDim2.new(1,0,1,0)
+    lbl.BackgroundTransparency = 0.35
+    lbl.TextColor3 = Color3.fromRGB(0,255,0)
+    lbl.TextScaled = true
+    lbl.Font = Enum.Font.SourceSansBold
+    PlayerGUIs[plr] = {gui = bg, label = lbl}
+    bg.Enabled = false
+    return PlayerGUIs[plr]
+end
+
+Players.PlayerRemoving:Connect(function(p)
+    if PlayerGUIs[p] then pcall(function() PlayerGUIs[p].gui:Destroy() end) PlayerGUIs[p] = nil end
+end)
+
+-- ===== LOCATOR =====
+local LocatorMode = "NearestKey"
+local LocatorSpecificKey = KEY_LIST[1]
+
+local function ensureLocatorGui()
+    if LocatorData and LocatorData.gui and LocatorData.gui.Parent then return LocatorData end
+    local bg = Instance.new("BillboardGui")
+    bg.Name = "G1_Locator"
+    bg.AlwaysOnTop = true
+    bg.Size = UDim2.new(0, 160, 0, 36)
+    bg.StudsOffset = Vector3.new(0, 1.8, 0)
+    bg.Parent = PlayerGui
+    local lbl = Instance.new("TextLabel", bg)
+    lbl.Size = UDim2.new(1,0,1,0)
+    lbl.BackgroundTransparency = 0.4
+    lbl.TextColor3 = Color3.fromRGB(0,255,0)
+    lbl.TextScaled = true
+    lbl.Font = Enum.Font.SourceSansBold
+    LocatorData = {gui = bg, label = lbl}
+    LocatorData.gui.Enabled = false
+    return LocatorData
+end
+
+local locatorConnection = nil
+local function startLocator(mode, specific)
+    LocatorMode = mode or "NearestKey"
+    LocatorSpecificKey = specific or LocatorSpecificKey
+    ensureLocatorGui()
+    LocatorData.gui.Enabled = true
+    if locatorConnection then locatorConnection:Disconnect() locatorConnection = nil end
+    locatorConnection = RunService.RenderStepped:Connect(function()
+        if not LocatorData or not LocatorData.gui then return end
+        if LocatorMode == "NearestKey" then
+            local nearest, nd = nil, math.huge
+            for inst, _ in pairs(KeyGUIs) do
+                if inst and inst.Parent then
+                    local part = getBasePart(inst)
+                    if part then
+                        local studs, txt = safeDistanceTo(part.Position)
+                        if studs and studs < nd then nd = studs; nearest = part end
+                    end
+                end
+            end
+            if nearest then
+                local studs, txt = safeDistanceTo(nearest.Position)
+                LocatorData.label.Text = (txt or "N/A")
+                LocatorData.gui.Adornee = nearest
+                LocatorData.gui.Enabled = true
+            else
+                LocatorData.label.Text = "No key"
+                LocatorData.gui.Enabled = false
+            end
+
+        elseif LocatorMode == "SpecificKey" then
+            local preset = Workspace:FindFirstChild("Preset3")
+            if preset then
+                local inst = preset:FindFirstChild(LocatorSpecificKey)
+                if inst and inst.Parent then
+                    local part = getBasePart(inst)
+                    if part then
+                        local studs, txt = safeDistanceTo(part.Position)
+                        LocatorData.label.Text = (txt or "N/A")
+                        LocatorData.gui.Adornee = part
+                        LocatorData.gui.Enabled = true
+                    else
+                        LocatorData.label.Text = "No part"
+                        LocatorData.gui.Enabled = false
+                    end
+                else
+                    LocatorData.label.Text = "Not found"
+                    LocatorData.gui.Enabled = false
+                end
+            end
+
+        elseif LocatorMode == "Player" then
+            local nearest, nd = nil, math.huge
+            for _,p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    local studs, txt = safeDistanceTo(p.Character.HumanoidRootPart.Position)
+                    if studs and studs < nd then nd = studs; nearest = p end
+                end
+            end
+            if nearest and nearest.Character and nearest.Character:FindFirstChild("HumanoidRootPart") then
+                local studs, txt = safeDistanceTo(nearest.Character.HumanoidRootPart.Position)
+                LocatorData.label.Text = nearest.Name .. "\n" .. (txt or "N/A")
+                LocatorData.gui.Adornee = nearest.Character.HumanoidRootPart
+                LocatorData.gui.Enabled = true
+            else
+                LocatorData.label.Text = "No player"
+                LocatorData.gui.Enabled = false
+            end
+        end
     end)
 end
 
--- Animation Tween on Show
-MainFrame.Position = UDim2.new(0.5, -250, 1, 0)
-TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back), {Position = UDim2.new(0.5, -250, 0.5, -150)}):Play()
+local function stopLocator()
+    if locatorConnection then locatorConnection:Disconnect() locatorConnection = nil end
+    if LocatorData and LocatorData.gui then LocatorData.gui.Enabled = false end
+end
+
+-- ===== MAIN UPDATE LOOP =====
+local ESPPlayersEnabled = false
+local ESPKeysEnabled = false
+local ESPGrannyEnabled = false
+local ESPSpiderEnabled = false
+
+RunService.RenderStepped:Connect(function()
+    -- Players
+    if ESPPlayersEnabled then
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local info = ensurePlayerGui(p)
+                if info then
+                    local studs, txt = safeDistanceTo(p.Character.HumanoidRootPart.Position)
+                    info.label.Text = p.Name .. "\n" .. (txt or "N/A")
+                    info.gui.Adornee = p.Character.HumanoidRootPart
+                    info.gui.Enabled = true
+                end
+            else
+                if PlayerGUIs[p] and PlayerGUIs[p].gui then PlayerGUIs[p].gui.Enabled = false end
+            end
+        end
+    else
+        for p,info in pairs(PlayerGUIs) do if info and info.gui then info.gui.Enabled = false end end
+    end
+
+    -- Keys
+    if ESPKeysEnabled then
+        for inst,info in pairs(KeyGUIs) do
+            if inst and inst.Parent and info and info.gui then
+                local part = getBasePart(inst)
+                if part then
+                    local studs, txt = safeDistanceTo(part.Position)
+                    info.label.Text = inst.Name .. "\n" .. (txt or "N/A")
+                    info.gui.Adornee = part
+                    info.gui.Enabled = true
+                else
+                    info.gui.Enabled = false
+                end
+            elseif info and info.gui then
+                info.gui.Enabled = false
+            end
+        end
+    else
+        for inst,info in pairs(KeyGUIs) do if info and info.gui then info.gui.Enabled = false end end
+    end
+
+    -- Granny
+    if ESPGrannyEnabled then
+        for inst,info in pairs(GrannyGUIs) do
+            if inst and inst.Parent and info and info.gui then
+                local part = getBasePart(inst)
+                if part then
+                    local studs, txt = safeDistanceTo(part.Position)
+                    info.label.Text = "GRANNY\n" .. (txt or "N/A")
+                    info.gui.Adornee = part
+                    info.gui.Enabled = true
+                else
+                    info.gui.Enabled = false
+                end
+            end
+        end
+    else
+        for inst,info in pairs(GrannyGUIs) do if info and info.gui then info.gui.Enabled = false end end
+    end
+
+    -- Spider
+    if ESPSpiderEnabled then
+        for inst,info in pairs(SpiderGUIs) do
+            if inst and inst.Parent and info and info.gui then
+                local part = getBasePart(inst)
+                if part then
+                    local studs, txt = safeDistanceTo(part.Position)
+                    info.label.Text = "SPIDER\n" .. (txt or "N/A")
+                    info.gui.Adornee = part
+                    info.gui.Enabled = true
+                else
+                    info.gui.Enabled = false
+                end
+            end
+        end
+    else
+        for inst,info in pairs(SpiderGUIs) do if info and info.gui then info.gui.Enabled = false end end
+    end
+end)
+
+-- ===== UI ELEMENTS =====
+UI.AddToggle("ESP Players", false, function(val)
+    ESPPlayersEnabled = val
+    if not val then for p,info in pairs(PlayerGUIs) do if info and info.gui then info.gui.Enabled = false end end end
+end)
+
+UI.AddToggle("ESP Keys (all)", false, function(val)
+    ESPKeysEnabled = val
+    if val then
+        -- ensure keys exist (create GUIs)
+        local preset = Workspace:FindFirstChild("Preset3")
+        if preset then
+            for _,name in ipairs(KEY_LIST) do
+                local inst = preset:FindFirstChild(name)
+                if inst then addKeyInstance(inst) end
+            end
+        end
+    else
+        for inst,info in pairs(KeyGUIs) do if info and info.gui then info.gui.Enabled = false end end
+    end
+end)
+
+UI.AddToggle("ESP Granny", false, function(val)
+    ESPGrannyEnabled = val
+    if val then findAndAddGrannies = scanForGranniesAndSpiders(); scanForGranniesAndSpiders() end
+end)
+
+UI.AddToggle("ESP Spider Granny", false, function(val)
+    ESPSpiderEnabled = val
+    if val then scanForGranniesAndSpiders() end
+end)
+
+UI.AddDropdown("Locator Mode", {"NearestKey","SpecificKey","Player"}, "NearestKey", function(opt)
+    LocatorMode = opt
+end)
+
+UI.AddDropdown("Specific Key", KEY_LIST, KEY_LIST[1], function(opt)
+    LocatorSpecificKey = opt
+end)
+
+UI.AddButton("Start Locator", function() startLocator(LocatorMode, LocatorSpecificKey) end)
+UI.AddButton("Stop Locator", function() stopLocator() end)
+UI.AddButton("Focus Camera to Nearest Key (one-shot)", function()
+    local inst, studs = (function()
+        local preset = Workspace:FindFirstChild("Preset3")
+        if not preset then return nil, math.huge end
+        local nearest, nd = nil, math.huge
+        for _,name in ipairs(KEY_LIST) do
+            local inst = preset:FindFirstChild(name)
+            if inst and inst.Parent then
+                local part = getBasePart(inst)
+                if part then
+                    local s,_ = safeDistanceTo(part.Position)
+                    if s and s < nd then nd = s; nearest = part end
+                end
+            end
+        end
+        return nearest, nd
+    end)()
+    if inst then pcall(function() workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, inst.Position) end) end
+end)
+
+-- notification
+if Fluent and type(Fluent.Notify) == "function" then
+    Fluent:Notify({Title = "Granny1 ESP", Content = "Loaded", Duration = 3})
+else
+    print("[Granny1] Loaded (fallback UI if Fluent unavailable)")
+end
