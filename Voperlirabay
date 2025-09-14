@@ -1,6 +1,4 @@
--- Granny1 — ESP + Locator (Rayfield UI)
--- Paste into executor (Synapse X / Fluxus / KRNL / Delta)
--- Uses BillboardGui for ESP, nil-safe distance checks, GUIs created once and toggled.
+-- Granny1 — ESP + Locator (Rayfield UI) — ESP Key fixed, ESP Granny & Spider removed
 
 -- ===== CONFIG =====
 local KEY_LIST = {
@@ -25,12 +23,11 @@ local STUD_TO_METER = 0.28
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = workspace
-local Debris = game:GetService("Debris")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local Camera = Workspace.CurrentCamera
 
--- ===== SAFE HTTP LOAD Rayfield (try multiple URLs) =====
+-- ===== SAFE HTTP LOAD Rayfield =====
 local function safeHttpGet(url)
     local ok, res = pcall(function() return game:HttpGet(url) end)
     if ok then return res end
@@ -43,7 +40,6 @@ do
         "https://sirius.menu/rayfield",
         "https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua",
         "https://raw.githubusercontent.com/BenVlodgi/Rayfield/main/source.lua",
-        "https://raw.githubusercontent.com/shlexware/Orion/main/source.lua" -- fallback not Rayfield but in case
     }
     for _, url in ipairs(candidates) do
         local code = safeHttpGet(url)
@@ -58,7 +54,7 @@ do
 end
 
 if not Rayfield then
-    warn("[Granny1] Rayfield could not be loaded. UI will not appear. Please ensure HttpGet works or provide Rayfield.")
+    warn("[Granny1] Rayfield could not be loaded. UI will not appear.")
 end
 
 -- ===== UTILITIES =====
@@ -81,12 +77,6 @@ local function safeDistanceToPosition(pos)
     local studs = (hrp.Position - pos).Magnitude
     local meters = studs * STUD_TO_METER
     return studs, string.format("%.1f m (%.0f studs)", meters, studs)
-end
-
-local function safeDistanceToInstance(inst)
-    local part = getBasePart(inst)
-    if not part then return nil, nil end
-    return safeDistanceToPosition(part.Position)
 end
 
 local function createBillboard(inst, initialText, color)
@@ -116,8 +106,6 @@ end
 -- ===== STORAGE =====
 local PlayerGUIs = {}    -- [player] = {gui,label}
 local KeyGUIs = {}       -- [inst] = {gui,label}
-local GrannyGUIs = {}    -- [model] = {gui,label}
-local SpiderGUIs = {}    -- [model] = {gui,label}
 local LocatorData = nil
 local locatorConn = nil
 
@@ -148,11 +136,19 @@ Players.PlayerRemoving:Connect(function(plr)
     if PlayerGUIs[plr] then pcall(function() PlayerGUIs[plr].gui:Destroy() end) PlayerGUIs[plr] = nil end
 end)
 
--- ===== KEYS MANAGEMENT =====
+-- ===== KEYS MANAGEMENT (FIXED) =====
 local function addKey(inst)
     if not inst or not inst.Parent then return end
     if not table.find(KEY_LIST, inst.Name) then return end
     if KeyGUIs[inst] then return end
+
+    local part = getBasePart(inst)
+    if not part then
+        -- Nếu Key chưa có BasePart, delay thử lại
+        task.delay(0.1, function() addKey(inst) end)
+        return
+    end
+
     local color = KEY_COLORS[inst.Name] or Color3.fromRGB(255,255,255)
     local info = createBillboard(inst, inst.Name, color)
     if info then
@@ -160,6 +156,7 @@ local function addKey(inst)
         info.gui.Enabled = false
     end
 end
+
 local function removeKey(inst)
     local info = KeyGUIs[inst]
     if info and info.gui then pcall(function() info.gui:Destroy() end) end
@@ -167,55 +164,24 @@ local function removeKey(inst)
 end
 
 local function setupPresetWatcher()
+    local function watchPreset(preset)
+        for _,ch in ipairs(preset:GetChildren()) do addKey(ch) end
+        preset.ChildAdded:Connect(addKey)
+        preset.ChildRemoved:Connect(removeKey)
+    end
+
     local preset = Workspace:FindFirstChild("Preset3")
-    if not preset then
-        -- wait for creation
+    if preset then
+        watchPreset(preset)
+    else
         Workspace.ChildAdded:Connect(function(c)
             if c.Name == "Preset3" then
-                task.delay(0.05, function()
-                    for _,ch in ipairs(c:GetChildren()) do addKey(ch) end
-                    c.ChildAdded:Connect(addKey)
-                    c.ChildRemoved:Connect(removeKey)
-                end)
+                task.delay(0.05, function() watchPreset(c) end)
             end
         end)
-        return
     end
-    for _,ch in ipairs(preset:GetChildren()) do addKey(ch) end
-    preset.ChildAdded:Connect(addKey)
-    preset.ChildRemoved:Connect(removeKey)
 end
 setupPresetWatcher()
-
--- ===== GRANNY & SPIDER detection =====
-local function scanForGranniesAndSpiders()
-    for _, d in ipairs(Workspace:GetDescendants()) do
-        if d:IsA("Model") and d.Parent ~= Players then
-            local n = d.Name:lower()
-            if n:find("granny") and not GrannyGUIs[d] then
-                local info = createBillboard(d, "GRANNY", Color3.fromRGB(255,80,80))
-                if info then GrannyGUIs[d] = info; info.gui.Enabled = false end
-            end
-            if n:find("spider") and not SpiderGUIs[d] then
-                local info = createBillboard(d, "SPIDER", Color3.fromRGB(0,200,200))
-                if info then SpiderGUIs[d] = info; info.gui.Enabled = false end
-            end
-        end
-    end
-end
-scanForGranniesAndSpiders()
-Workspace.DescendantAdded:Connect(function(d)
-    task.delay(0.05, function()
-        if d:IsA("Model") then
-            local n = d.Name:lower()
-            if n:find("granny") or n:find("spider") then scanForGranniesAndSpiders() end
-        end
-    end)
-end)
-Workspace.DescendantRemoving:Connect(function(d)
-    if GrannyGUIs[d] then pcall(function() GrannyGUIs[d].gui:Destroy() end) GrannyGUIs[d] = nil end
-    if SpiderGUIs[d] then pcall(function() SpiderGUIs[d].gui:Destroy() end) SpiderGUIs[d] = nil end
-end)
 
 -- ===== LOCATOR =====
 local function ensureLocator()
@@ -247,13 +213,11 @@ local function startLocator(mode, specificKeyName)
     locatorConnection = RunService.RenderStepped:Connect(function()
         if mode == "NearestKey" then
             local nearestPart, nd = nil, math.huge
-            for inst, info in pairs(KeyGUIs) do
-                if inst and inst.Parent then
-                    local part = getBasePart(inst)
-                    if part then
-                        local studs, txt = safeDistanceToPosition(part.Position)
-                        if studs and studs < nd then nd = studs; nearestPart = part end
-                    end
+            for inst, _ in pairs(KeyGUIs) do
+                local part = getBasePart(inst)
+                if part then
+                    local studs, _ = safeDistanceToPosition(part.Position)
+                    if studs and studs < nd then nd = studs; nearestPart = part end
                 end
             end
             if nearestPart then
@@ -270,7 +234,7 @@ local function startLocator(mode, specificKeyName)
             local preset = Workspace:FindFirstChild("Preset3")
             if preset then
                 local inst = preset:FindFirstChild(specificKeyName)
-                if inst and inst.Parent then
+                if inst then
                     local part = getBasePart(inst)
                     if part then
                         local _, txt = safeDistanceToPosition(part.Position)
@@ -291,7 +255,7 @@ local function startLocator(mode, specificKeyName)
             local nearestP, nd = nil, math.huge
             for _,p in ipairs(Players:GetPlayers()) do
                 if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                    local studs, txt = safeDistanceToPosition(p.Character.HumanoidRootPart.Position)
+                    local studs, _ = safeDistanceToPosition(p.Character.HumanoidRootPart.Position)
                     if studs and studs < nd then nd = studs; nearestP = p end
                 end
             end
@@ -313,20 +277,18 @@ local function stopLocator()
     if LocatorData and LocatorData.gui then LocatorData.gui.Enabled = false end
 end
 
--- ===== MAIN UPDATE LOOP (render) =====
+-- ===== MAIN UPDATE LOOP =====
 local ESPPlayersEnabled = false
 local ESPKeysEnabled = false
-local ESPGrannyEnabled = false
-local ESPSpiderEnabled = false
 
 RunService.RenderStepped:Connect(function()
-    -- Players
+    -- Players ESP
     if ESPPlayersEnabled then
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                 local info = ensurePlayerGui(p)
                 if info then
-                    local studs, txt = safeDistanceToPosition(p.Character.HumanoidRootPart.Position)
+                    local _, txt = safeDistanceToPosition(p.Character.HumanoidRootPart.Position)
                     info.label.Text = p.Name .. "\n" .. (txt or "N/A")
                     info.gui.Adornee = p.Character.HumanoidRootPart
                     info.gui.Enabled = true
@@ -336,73 +298,33 @@ RunService.RenderStepped:Connect(function()
             end
         end
     else
-        for p,info in pairs(PlayerGUIs) do if info and info.gui then info.gui.Enabled = false end end
+        for _,info in pairs(PlayerGUIs) do if info.gui then info.gui.Enabled = false end end
     end
 
-    -- Keys
+    -- Keys ESP
     if ESPKeysEnabled then
         for inst, info in pairs(KeyGUIs) do
-            if inst and inst.Parent and info and info.gui then
+            if inst and inst.Parent and info.gui then
                 local part = getBasePart(inst)
                 if part then
-                    local studs, txt = safeDistanceToPosition(part.Position)
+                    local _, txt = safeDistanceToPosition(part.Position)
                     info.label.Text = inst.Name .. "\n" .. (txt or "N/A")
                     info.gui.Adornee = part
                     info.gui.Enabled = true
                 else
                     info.gui.Enabled = false
                 end
-            elseif info and info.gui then
+            elseif info.gui then
                 info.gui.Enabled = false
             end
         end
     else
-        for inst, info in pairs(KeyGUIs) do if info and info.gui then info.gui.Enabled = false end end
-    end
-
-    -- Granny
-    if ESPGrannyEnabled then
-        for inst, info in pairs(GrannyGUIs) do
-            if inst and inst.Parent and info and info.gui then
-                local part = getBasePart(inst)
-                if part then
-                    local studs, txt = safeDistanceToPosition(part.Position)
-                    info.label.Text = "GRANNY\n" .. (txt or "N/A")
-                    info.gui.Adornee = part
-                    info.gui.Enabled = true
-                else
-                    info.gui.Enabled = false
-                end
-            end
-        end
-    else
-        for inst, info in pairs(GrannyGUIs) do if info and info.gui then info.gui.Enabled = false end end
-    end
-
-    -- Spider
-    if ESPSpiderEnabled then
-        for inst, info in pairs(SpiderGUIs) do
-            if inst and inst.Parent and info and info.gui then
-                local part = getBasePart(inst)
-                if part then
-                    local studs, txt = safeDistanceToPosition(part.Position)
-                    info.label.Text = "SPIDER\n" .. (txt or "N/A")
-                    info.gui.Adornee = part
-                    info.gui.Enabled = true
-                else
-                    info.gui.Enabled = false
-                end
-            end
-        end
-    else
-        for inst, info in pairs(SpiderGUIs) do if info and info.gui then info.gui.Enabled = false end end
+        for _,info in pairs(KeyGUIs) do if info.gui then info.gui.Enabled = false end end
     end
 end)
 
--- ===== RAYFIELD UI CREATION =====
-if not Rayfield then
-    print("[Granny1] Rayfield not available — controls not shown. Check HttpGet or Rayfield source.")
-else
+-- ===== RAYFIELD UI =====
+if Rayfield then
     local Window = Rayfield:CreateWindow({
         Name = "Granny1 | ESP & Locator",
         LoadingTitle = "Granny1",
@@ -419,25 +341,6 @@ else
 
     Main:CreateToggle({ Name = "ESP Keys (all)", Default = false, Callback = function(v)
         ESPKeysEnabled = v
-        if v then
-            local preset = Workspace:FindFirstChild("Preset3")
-            if preset then
-                for _, name in ipairs(KEY_LIST) do
-                    local inst = preset:FindFirstChild(name)
-                    if inst then addKey(inst) end
-                end
-            end
-        end
-    end })
-
-    Main:CreateToggle({ Name = "ESP Granny", Default = false, Callback = function(v)
-        ESPGrannyEnabled = v
-        if v then scanForGranniesAndSpiders() end
-    end })
-
-    Main:CreateToggle({ Name = "ESP Spider Granny", Default = false, Callback = function(v)
-        ESPSpiderEnabled = v
-        if v then scanForGranniesAndSpiders() end
     end })
 
     Main:CreateDropdown({ Name = "Locator Mode", Default = "NearestKey", Options = { "NearestKey", "SpecificKey", "Player" }, Callback = function(opt)
@@ -457,7 +360,6 @@ else
     end })
 
     Main:CreateButton({ Name = "Focus Camera to Nearest Key", Callback = function()
-        -- one-shot focus
         local preset = Workspace:FindFirstChild("Preset3")
         if preset then
             local nearestPart, nd = nil, math.huge
